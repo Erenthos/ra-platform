@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Optional: global tweaks for a cleaner UI */
+html, body {
+  height: 100%;
+  background-color: #f9fafb;
+  color: #1f2937;
+  font-family: system-ui, sans-serif;
+}
+
+button {
+  transition: all 0.2s ease;
+}
+
+input, textarea {
+  outline: none;
+}
+
+a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}

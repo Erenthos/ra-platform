@@ -18,7 +18,8 @@
     "pdfkit": "^0.15.0",
     "jsonwebtoken": "^9.0.2",
     "sse-channel": "^3.1.0",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "iconv-lite": "^0.6.3"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

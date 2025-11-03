@@ -1,1 +1,65 @@
+generator client {
+provider = "prisma-client-js"
+}
+
+datasource db {
+provider = "postgresql"
+url      = env("DATABASE_URL")
+}
+
+model User {
+id           Int       @id @default(autoincrement())
+username     String    @unique
+passwordHash String
+role         UserRole
+createdAt    DateTime  @default(now())
+auctions     Auction[] @relation("BuyerAuctions")
+bids         Bid[]
+}
+
+model Auction {
+id             Int       @id @default(autoincrement())
+buyerId        Int
+buyer          User      @relation(fields: [buyerId], references: [id], name: "BuyerAuctions")
+title          String
+decrementStep  Float
+durationMins   Int
+startPrice     Float
+startTime      DateTime?
+endTime        DateTime?
+status         AuctionStatus @default(SCHEDULED)
+items          Item[]
+createdAt      DateTime  @default(now())
+}
+
+model Item {
+id          Int     @id @default(autoincrement())
+auctionId   Int
+auction     Auction @relation(fields: [auctionId], references: [id])
+description String
+quantity    Float
+uom         String
+bids        Bid[]
+}
+
+model Bid {
+id         Int      @id @default(autoincrement())
+itemId     Int
+item       Item     @relation(fields: [itemId], references: [id])
+supplierId Int
+supplier   User     @relation(fields: [supplierId], references: [id])
+bidValue   Float
+bidTime    DateTime @default(now())
+}
+
+enum UserRole {
+buyer
+supplier
+}
+
+enum AuctionStatus {
+SCHEDULED
+LIVE
+CLOSED
+}
 

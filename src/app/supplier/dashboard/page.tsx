@@ -25,18 +25,40 @@ export default function SupplierDashboard() {
   const [loading, setLoading] = useState(true);
   const [bids, setBids] = useState<Record<number, number>>({});
   const [message, setMessage] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Load all LIVE auctions
+  // Load all LIVE auctions initially
   useEffect(() => {
     fetchAuctions();
-    const interval = setInterval(() => setRefreshKey((k) => k + 1), 8000); // auto-refresh every 8s
-    return () => clearInterval(interval);
   }, []);
 
+  // Subscribe to real-time bid updates (SSE)
   useEffect(() => {
-    fetchAuctions();
-  }, [refreshKey]);
+    const eventSource = new EventSource("/api/sse");
+
+    eventSource.addEventListener("bidUpdate", (event) => {
+      const data = JSON.parse((event as MessageEvent).data);
+      setAuctions((prev) =>
+        prev.map((a) =>
+          a.id === data.auctionId
+            ? {
+                ...a,
+                items: a.items.map((it) => {
+                  const updated = data.items.find(
+                    (x: any) => x.itemId === it.id
+                  );
+                  return updated
+                    ? { ...it, currentMin: updated.currentMin }
+                    : it;
+                }),
+              }
+            : a
+        )
+      );
+    });
+
+    eventSource.onerror = (e) => console.error("SSE error:", e);
+    return () => eventSource.close();
+  }, []);
 
   async function fetchAuctions() {
     setLoading(true);
@@ -54,15 +76,12 @@ export default function SupplierDashboard() {
     }
   }
 
-  // Handle bid input change
+  // Handle bid change
   function handleBidChange(itemId: number, value: string) {
-    setBids((prev) => ({
-      ...prev,
-      [itemId]: Number(value),
-    }));
+    setBids((prev) => ({ ...prev, [itemId]: Number(value) }));
   }
 
-  // Submit multiple bids at once
+  // Submit all bids at once
   async function handleSubmit(auctionId: number) {
     const entries = Object.entries(bids)
       .filter(([_, v]) => v && !isNaN(v))
@@ -72,7 +91,7 @@ export default function SupplierDashboard() {
       }));
 
     if (entries.length === 0) {
-      setMessage("Please enter at least one bid value before submitting.");
+      setMessage("Please enter at least one valid bid before submitting.");
       return;
     }
 
@@ -91,26 +110,28 @@ export default function SupplierDashboard() {
 
       setMessage("✅ Bids submitted successfully!");
       setBids({});
-      fetchAuctions();
     } catch (err: any) {
-      setMessage("❌ Server error submitting bids.");
       console.error(err);
+      setMessage("❌ Server error submitting bids.");
     }
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-6">
       <div className="max-w-6xl mx-auto">
+        {/* Header */}
         <header className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-slate-800">Supplier Dashboard</h1>
+            <h1 className="text-3xl font-bold text-slate-800">
+              Supplier Dashboard
+            </h1>
             <p className="text-slate-500 mt-1">
-              View live auctions and submit your bids in real time.
+              View live auctions and place your bids in real time.
             </p>
           </div>
           <button
             onClick={() => fetchAuctions()}
-            className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg text-sm text-slate-700 hover:bg-slate-100 transition"
+            className="px-4 py-2 border rounded-lg text-sm text-slate-700 hover:bg-slate-100"
           >
             Refresh
           </button>
@@ -123,20 +144,28 @@ export default function SupplierDashboard() {
         )}
 
         {loading ? (
-          <div className="py-10 text-center text-slate-500">Loading live auctions…</div>
+          <div className="py-10 text-center text-slate-500">
+            Loading live auctions…
+          </div>
         ) : auctions.length === 0 ? (
           <div className="py-10 text-center text-slate-500">
-            No live auctions at the moment. Please check back later.
+            No live auctions available.
           </div>
         ) : (
           <div className="grid gap-6">
             {auctions.map((a) => (
-              <article key={a.id} className="bg-white shadow rounded-xl p-6">
+              <article
+                key={a.id}
+                className="bg-white shadow rounded-xl p-6 hover:shadow-lg transition"
+              >
                 <div className="flex items-start justify-between">
                   <div>
-                    <h2 className="text-xl font-semibold text-slate-800">{a.title}</h2>
+                    <h2 className="text-xl font-semibold text-slate-800">
+                      {a.title}
+                    </h2>
                     <div className="text-sm text-slate-500 mt-1">
-                      Start Price: <b>{a.startPrice}</b> | Step: <b>{a.decrementStep}</b> | Duration:{" "}
+                      Start Price: <b>{a.startPrice}</b> | Step:{" "}
+                      <b>{a.decrementStep}</b> | Duration:{" "}
                       <b>{a.durationMins} mins</b>
                     </div>
                     <div className="text-xs text-slate-400 mt-1">
@@ -161,7 +190,9 @@ export default function SupplierDashboard() {
                       {a.items.map((it, idx) => (
                         <tr key={it.id} className="border-b hover:bg-slate-50">
                           <td className="py-2 text-slate-600">{idx + 1}</td>
-                          <td className="py-2 text-slate-800">{it.description}</td>
+                          <td className="py-2 text-slate-800">
+                            {it.description}
+                          </td>
                           <td className="py-2 text-slate-700">{it.quantity}</td>
                           <td className="py-2 text-slate-700">{it.uom}</td>
                           <td className="py-2 text-emerald-600 font-medium">

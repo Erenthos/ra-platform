@@ -13,7 +13,7 @@ export async function GET(
     return NextResponse.json({ error: "Invalid auction ID" }, { status: 400 });
   }
 
-  // Fetch auction with items and buyer details
+  // Fetch auction details
   const auction = await prisma.auction.findUnique({
     where: { id: auctionId },
     include: { items: true, buyer: true },
@@ -30,7 +30,7 @@ export async function GET(
     orderBy: { bidValue: "asc" },
   });
 
-  // Create PDF
+  // Generate PDF
   const chunks: Buffer[] = [];
   const doc = new PDFDocument({ margin: 40, size: "A4" });
 
@@ -51,7 +51,7 @@ export async function GET(
     .text(`Start Price: ${auction.startPrice}`)
     .moveDown(1);
 
-  // Table header
+  // Table section
   doc.fontSize(14).text("Item-wise Summary", { underline: true });
   doc.moveDown(0.5);
 
@@ -80,10 +80,14 @@ export async function GET(
   doc.end();
   const pdfBuffer = await done;
 
-  // ✅ Convert Buffer to Uint8Array — fully Web API compatible
-  const uint8Array = new Uint8Array(pdfBuffer);
+  // ✅ Safely convert to ArrayBuffer and assert type
+  const arrayBuffer: ArrayBuffer = pdfBuffer.buffer.slice(
+    pdfBuffer.byteOffset,
+    pdfBuffer.byteOffset + pdfBuffer.byteLength
+  ) as ArrayBuffer;
 
-  return new NextResponse(uint8Array, {
+  // ✅ Return as PDF
+  return new NextResponse(arrayBuffer, {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename=\"Auction_${auctionId}_Summary.pdf\"`,

@@ -13,7 +13,7 @@ export async function GET(
     return NextResponse.json({ error: "Invalid auction ID" }, { status: 400 });
   }
 
-  // Fetch auction details
+  // Fetch auction with details
   const auction = await prisma.auction.findUnique({
     where: { id: auctionId },
     include: { items: true, buyer: true },
@@ -23,14 +23,14 @@ export async function GET(
     return NextResponse.json({ error: "Auction not found" }, { status: 404 });
   }
 
-  // Fetch bids and include suppliers
+  // Fetch all bids
   const bids = await prisma.bid.findMany({
     where: { item: { auctionId } },
     include: { supplier: true, item: true },
     orderBy: { bidValue: "asc" },
   });
 
-  // Generate PDF
+  // Create PDF
   const chunks: Buffer[] = [];
   const doc = new PDFDocument({ margin: 40, size: "A4" });
 
@@ -51,7 +51,7 @@ export async function GET(
     .text(`Start Price: ${auction.startPrice}`)
     .moveDown(1);
 
-  // Table section
+  // Summary section
   doc.fontSize(14).text("Item-wise Summary", { underline: true });
   doc.moveDown(0.5);
 
@@ -80,14 +80,11 @@ export async function GET(
   doc.end();
   const pdfBuffer = await done;
 
-  // ✅ Safely convert to ArrayBuffer and assert type
-  const arrayBuffer: ArrayBuffer = pdfBuffer.buffer.slice(
-    pdfBuffer.byteOffset,
-    pdfBuffer.byteOffset + pdfBuffer.byteLength
-  ) as ArrayBuffer;
+  // ✅ Create a Blob (browser-compatible and build-safe)
+  const blob = new Blob([pdfBuffer], { type: "application/pdf" });
 
-  // ✅ Return as PDF
-  return new NextResponse(arrayBuffer, {
+  // ✅ Return as a NextResponse (no SharedArrayBuffer issues)
+  return new NextResponse(blob.stream(), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename=\"Auction_${auctionId}_Summary.pdf\"`,

@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
-import { broadcastBidUpdate } from "../sse/route";
+import { broadcastBidUpdate } from "../sse/broadcaster";
 
 export async function POST(request: NextRequest) {
   const { PrismaClient } = await import("@prisma/client");

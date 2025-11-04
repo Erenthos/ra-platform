@@ -3,7 +3,9 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// ------------------------------------
 // GET: Fetch auctions (optionally only live ones)
+// ------------------------------------
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const live = url.searchParams.get("live");
@@ -34,12 +36,14 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(all);
 }
 
+// ------------------------------------
 // POST: Create a new auction
+// ------------------------------------
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const { title, decrementStep, durationMins, startPrice, itemsText } = body;
 
-  // For demo purposes, using buyerId = 1 (replace with real auth later)
+  // Temporary buyerId = 1 (replace with authenticated buyer later)
   const auction = await prisma.auction.create({
     data: {
       buyerId: 1,
@@ -51,11 +55,11 @@ export async function POST(request: NextRequest) {
     include: { items: true },
   });
 
-  // ✅ Explicitly type parameters to avoid implicit 'any'
-  const lines = (itemsText || "")
+  // ✅ Explicit typing for all lambda parameters
+  const lines = (itemsText ?? "")
     .split("\n")
     .map((l: string) => l.trim())
-    .filter(Boolean);
+    .filter((line: string): line is string => Boolean(line));
 
   for (const ln of lines) {
     const parts = ln.split(",").map((p: string) => p.trim());

@@ -1,5 +1,4 @@
 import "../globals.css";
-import { Navbar } from "@/components/Navbar";
 
 export const metadata = {
   title: "Reverse Auction Platform",
@@ -13,10 +12,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-gray-50 text-gray-900">
-        <Navbar /> {/* appears on all pages */}
-        <main>{children}</main>
-      </body>
+      <body className="bg-gray-50 text-gray-900">{children}</body>
     </html>
   );
 }

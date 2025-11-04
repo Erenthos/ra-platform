@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    /* === Basic Configuration === */
     "target": "es5",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
@@ -14,10 +15,25 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+
+    /* === Path Alias Support === */
+    "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]
-    }
+    },
+
+    /* === TypeScript Strictness (you can toggle) === */
+    "noImplicitAny": false,  // 👈 Set to false to prevent implicit 'any' build errors
+    "strictNullChecks": true,
+    "strictFunctionTypes": true
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "src/types/**/*"
+  ],
+
   "exclude": ["node_modules"]
 }

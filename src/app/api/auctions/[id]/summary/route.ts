@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       include: { items: true },
     });
 
-    // compute currentMin for each item
+    // Compute current minimum bid for each item
     for (const a of auctions) {
       for (const it of a.items) {
         const minBid = await prisma.bid.findFirst({
@@ -28,7 +28,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(auctions);
   }
 
-  const all = await prisma.auction.findMany({ orderBy: { id: "desc" } });
+  const all = await prisma.auction.findMany({
+    orderBy: { id: "desc" },
+  });
   return NextResponse.json(all);
 }
 
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { title, decrementStep, durationMins, startPrice, itemsText } = body;
 
-  // for demo purposes, using buyerId = 1 (replace with real auth later)
+  // For demo purposes, using buyerId = 1 (replace with real auth later)
   const auction = await prisma.auction.create({
     data: {
       buyerId: 1,
@@ -49,7 +51,7 @@ export async function POST(request: NextRequest) {
     include: { items: true },
   });
 
-  // ✅ Explicitly type lambda parameter
+  // ✅ Explicitly type parameters to avoid implicit 'any'
   const lines = (itemsText || "")
     .split("\n")
     .map((l: string) => l.trim())
@@ -71,5 +73,6 @@ export async function POST(request: NextRequest) {
     where: { id: auction.id },
     include: { items: true },
   });
+
   return NextResponse.json(withItems);
 }

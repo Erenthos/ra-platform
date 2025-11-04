@@ -1,87 +1,87 @@
-// --- Make this endpoint Node-only and never pre-rendered ---
+// --- Node-only runtime (no pre-rendering) ---
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
 
-export async function GET(request: NextRequest) {
-  // lazy import so build never loads Prisma during static analysis
+// GET all auctions with lowest bids
+export async function GET() {
   const { PrismaClient } = await import("@prisma/client");
   const prisma = new PrismaClient();
 
-  const url = new URL(request.url);
-  const live = url.searchParams.get("live");
-
-  if (live) {
+  try {
     const auctions = await prisma.auction.findMany({
-      where: { status: "LIVE" },
-      include: { items: true },
+      orderBy: { id: "desc" },
+      include: {
+        items: {
+          include: {
+            bids: { orderBy: { bidValue: "asc" }, take: 1 },
+          },
+        },
+      },
     });
 
-    // compute current minimum bid for each item
-    for (const a of auctions) {
-      for (const it of a.items) {
-        const minBid = await prisma.bid.findFirst({
-          where: { itemId: it.id },
-          orderBy: { bidValue: "asc" },
-        });
-        (it as any).currentMin = minBid ? minBid.bidValue : a.startPrice;
-      }
-    }
-    return NextResponse.json(auctions);
-  }
+    const result = auctions.map((a) => ({
+      ...a,
+      items: a.items.map((it) => ({
+        ...it,
+        currentMin: it.bids?.[0]?.bidValue ?? null,
+      })),
+    }));
 
-  const all = await prisma.auction.findMany({ orderBy: { id: "desc" } });
-  return NextResponse.json(all);
+    return NextResponse.json(result);
+  } catch (error: any) {
+    console.error("Error fetching auctions:", error);
+    return NextResponse.json({ error: "Failed to fetch auctions" }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
+// POST create auction
 export async function POST(request: NextRequest) {
   const { PrismaClient } = await import("@prisma/client");
   const prisma = new PrismaClient();
 
-  const body: {
-    title: string;
-    decrementStep: number;
-    durationMins: number;
-    startPrice: number;
-    itemsText?: string;
-  } = await request.json();
+  try {
+    const body = await request.json();
+    const { title, startPrice, decrementStep, durationMins, itemsText } = body;
 
-  const { title, decrementStep, durationMins, startPrice, itemsText } = body;
-
-  const auction = await prisma.auction.create({
-    data: {
-      buyerId: 1, // replace with real authenticated buyer
-      title,
-      decrementStep: Number(decrementStep),
-      durationMins: Number(durationMins),
-      startPrice: Number(startPrice),
-    },
-    include: { items: true },
-  });
-
-  const lines: string[] = (itemsText ?? "")
-    .split("\n")
-    .map((l: string) => l.trim())
-    .filter((line: string): boolean => line.length > 0);
-
-  for (const ln of lines) {
-    const parts: string[] = ln.split(",").map((p: string) => p.trim());
-    await prisma.item.create({
+    const auction = await prisma.auction.create({
       data: {
-        auctionId: auction.id,
-        description: parts[0],
-        quantity: Number(parts[1] || 1),
-        uom: parts[2] || "NOS",
+        title,
+        startPrice: Number(startPrice),
+        decrementStep: Number(decrementStep),
+        durationMins: Number(durationMins),
+        status: "SCHEDULED",
       },
     });
+
+    const lines = (itemsText || "")
+      .split("\n")
+      .map((l: string) => l.trim())
+      .filter(Boolean);
+
+    for (const ln of lines) {
+      const [desc, qty, uom] = ln.split(",").map((x) => x.trim());
+      if (desc) {
+        await prisma.item.create({
+          data: {
+            auctionId: auction.id,
+            description: desc,
+            quantity: Number(qty) || 1,
+            uom: uom || "NOS",
+          },
+        });
+      }
+    }
+
+    return NextResponse.json(auction);
+  } catch (error: any) {
+    console.error("Error creating auction:", error);
+    return NextResponse.json({ error: "Failed to create auction" }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
   }
-
-  const withItems = await prisma.auction.findUnique({
-    where: { id: auction.id },
-    include: { items: true },
-  });
-
-  return NextResponse.json(withItems);
 }

@@ -80,13 +80,10 @@ export async function GET(
   doc.end();
   const pdfBuffer = await done;
 
-  // ✅ Convert Node.js Buffer → ArrayBuffer for NextResponse
-  const arrayBuffer = pdfBuffer.buffer.slice(
-    pdfBuffer.byteOffset,
-    pdfBuffer.byteOffset + pdfBuffer.byteLength
-  );
+  // ✅ Convert Buffer to Uint8Array — fully Web API compatible
+  const uint8Array = new Uint8Array(pdfBuffer);
 
-  return new NextResponse(arrayBuffer, {
+  return new NextResponse(uint8Array, {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename=\"Auction_${auctionId}_Summary.pdf\"`,

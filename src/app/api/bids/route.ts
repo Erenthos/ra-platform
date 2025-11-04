@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
+import { broadcastBidUpdate } from "../sse/route";
 
 export async function POST(request: NextRequest) {
   const { PrismaClient } = await import("@prisma/client");
@@ -15,15 +16,21 @@ export async function POST(request: NextRequest) {
 
     if (!auctionId || !Array.isArray(bids) || bids.length === 0) {
       return NextResponse.json(
-        { error: "Invalid request: missing auction or bids" },
+        { error: "Invalid request: missing auctionId or bids array" },
         { status: 400 }
       );
     }
 
-    // Get auction details
+    // Fetch auction + items + existing bids
     const auction = await prisma.auction.findUnique({
       where: { id: auctionId },
-      include: { items: { include: { bids: { orderBy: { bidValue: "asc" } } } } },
+      include: {
+        items: {
+          include: {
+            bids: { orderBy: { bidValue: "asc" } },
+          },
+        },
+      },
     });
 
     if (!auction) {
@@ -41,10 +48,7 @@ export async function POST(request: NextRequest) {
 
     for (const b of bids) {
       const { itemId, bidValue } = b;
-
-      if (!itemId || !bidValue || bidValue <= 0) {
-        continue;
-      }
+      if (!itemId || !bidValue || bidValue <= 0) continue;
 
       const item = auction.items.find((i) => i.id === itemId);
       if (!item) {
@@ -52,21 +56,19 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Check lowest existing bid
-      const currentMin = item.bids.length ? item.bids[0].bidValue : auction.startPrice;
+      const currentMin =
+        item.bids.length > 0 ? item.bids[0].bidValue : auction.startPrice;
       const decrement = auction.decrementStep;
 
-      // Enforce decrement rule
       if (bidValue >= currentMin || currentMin - bidValue < decrement) {
         results.push({
           itemId,
-          status: `Bid must be at least ${decrement} lower than current min (${currentMin})`,
+          status: `❌ Must be at least ${decrement} lower than current min (${currentMin})`,
         });
         continue;
       }
 
-      // If no supplierId (not yet connected to login auth), use dummy 999
-      const supplier = supplierId || 999;
+      const supplier = supplierId || 999; // temporary fallback
 
       await prisma.bid.create({
         data: {
@@ -76,10 +78,10 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      results.push({ itemId, status: "accepted", bidValue });
+      results.push({ itemId, status: "✅ Accepted", bidValue });
     }
 
-    // Return updated min bids
+    // Recalculate updated current mins
     const updatedAuction = await prisma.auction.findUnique({
       where: { id: auctionId },
       include: {
@@ -90,6 +92,9 @@ export async function POST(request: NextRequest) {
         },
       },
     });
+
+    // 🔥 Broadcast new lowest bids via SSE
+    await broadcastBidUpdate(auctionId);
 
     const response = {
       message: "Bids processed successfully",
@@ -105,7 +110,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(response);
   } catch (error: any) {
     console.error("Error submitting bids:", error);
-    return NextResponse.json({ error: "Server error submitting bids" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Server error submitting bids" },
+      { status: 500 }
+    );
   } finally {
     await prisma.$disconnect();
   }

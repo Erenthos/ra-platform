@@ -13,7 +13,7 @@ export async function GET(
     return NextResponse.json({ error: "Invalid auction ID" }, { status: 400 });
   }
 
-  // Fetch auction details
+  // Fetch auction and related data
   const auction = await prisma.auction.findUnique({
     where: { id: auctionId },
     include: { items: true, buyer: true },
@@ -38,6 +38,7 @@ export async function GET(
     doc.on("end", () => resolve(Buffer.concat(chunks)))
   );
 
+  // Header
   doc.fontSize(18).text("Auction Summary Report", { align: "center" });
   doc.moveDown(0.5);
   doc
@@ -48,6 +49,7 @@ export async function GET(
     .text(`Start Price: ${auction.startPrice}`)
     .moveDown(1);
 
+  // Item Summary
   doc.fontSize(14).text("Item-wise Summary", { underline: true });
   doc.moveDown(0.5);
 
@@ -58,15 +60,14 @@ export async function GET(
     doc.fontSize(12).text(`Item: ${item.description}`);
     doc.text(`Quantity: ${item.quantity} ${item.uom}`);
     if (winner) {
-      doc.text(
-        `Lowest Bid: ${winner.bidValue} by ${winner.supplier.username}`
-      );
+      doc.text(`Lowest Bid: ${winner.bidValue} by ${winner.supplier.username}`);
     } else {
       doc.text("No bids placed for this item yet.");
     }
     doc.moveDown(0.5);
   }
 
+  // Footer
   doc.moveDown(1);
   doc
     .fontSize(10)
@@ -75,10 +76,13 @@ export async function GET(
   doc.end();
   const pdfBuffer = await done;
 
-  // ✅ Convert Buffer → Blob (fully BodyInit-compatible)
-  const pdfBlob = new Blob([pdfBuffer], { type: "application/pdf" });
+  // ✅ Convert Buffer → Uint8Array for Web Blob compatibility
+  const uint8Array = new Uint8Array(pdfBuffer);
 
-  // ✅ Return as a streamed response
+  // ✅ Create Blob safely
+  const pdfBlob = new Blob([uint8Array], { type: "application/pdf" });
+
+  // ✅ Return as a streamed response (100% build-safe)
   return new NextResponse(pdfBlob.stream(), {
     headers: {
       "Content-Type": "application/pdf",

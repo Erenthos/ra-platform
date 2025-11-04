@@ -3,9 +3,7 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-// ------------------------------------
 // GET: Fetch auctions (optionally only live ones)
-// ------------------------------------
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const live = url.searchParams.get("live");
@@ -36,11 +34,16 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(all);
 }
 
-// ------------------------------------
 // POST: Create a new auction
-// ------------------------------------
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  const body: {
+    title: string;
+    decrementStep: number;
+    durationMins: number;
+    startPrice: number;
+    itemsText?: string;
+  } = await request.json();
+
   const { title, decrementStep, durationMins, startPrice, itemsText } = body;
 
   // Temporary buyerId = 1 (replace with authenticated buyer later)
@@ -55,14 +58,16 @@ export async function POST(request: NextRequest) {
     include: { items: true },
   });
 
-  // ✅ Explicit typing for all lambda parameters
-  const lines = (itemsText ?? "")
+  // ✅ Explicit typing for all callbacks
+  const lines: string[] = (itemsText ?? "")
     .split("\n")
-    .map((l: string) => l.trim())
-    .filter((line: string): line is string => Boolean(line));
+    .map((l: string): string => l.trim())
+    .filter((line: string): boolean => line.length > 0);
 
   for (const ln of lines) {
-    const parts = ln.split(",").map((p: string) => p.trim());
+    const parts: string[] = ln
+      .split(",")
+      .map((p: string): string => p.trim());
     await prisma.item.create({
       data: {
         auctionId: auction.id,

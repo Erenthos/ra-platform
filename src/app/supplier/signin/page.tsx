@@ -1,7 +1,31 @@
 "use client";
+import { useState } from "react";
 import Link from "next/link";
 
 export default function SupplierSignIn() {
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage("");
+
+    const form = e.currentTarget;
+    const email = (form.elements.namedItem("email") as HTMLInputElement).value;
+    const password = (form.elements.namedItem("password") as HTMLInputElement).value;
+
+    const res = await fetch("/api/auth/signin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+    setLoading(false);
+    setMessage(data.success ? "✅ Login successful!" : `❌ ${data.error}`);
+  };
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 via-white to-green-100 px-6">
       <div className="bg-white/90 shadow-lg rounded-2xl p-8 max-w-md w-full">
@@ -12,24 +36,31 @@ export default function SupplierSignIn() {
           Access your supplier dashboard
         </p>
 
-        <form className="space-y-4">
+        <form className="space-y-4" onSubmit={handleSubmit}>
           <input
+            name="email"
             type="email"
             placeholder="Email address"
             className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-400 outline-none"
           />
           <input
+            name="password"
             type="password"
             placeholder="Password"
             className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-400 outline-none"
           />
           <button
             type="submit"
-            className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition"
+            disabled={loading}
+            className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
           >
-            Sign In
+            {loading ? "Signing In..." : "Sign In"}
           </button>
         </form>
+
+        {message && (
+          <p className="text-center text-sm mt-4 text-gray-700">{message}</p>
+        )}
 
         <p className="text-center text-sm text-gray-600 mt-6">
           Don’t have an account?{" "}

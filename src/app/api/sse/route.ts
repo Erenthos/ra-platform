@@ -1,45 +1,38 @@
+// --- Force runtime execution only ---
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-import { NextRequest } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { NextRequest } from "next/server";
 
-const prisma = new PrismaClient();
+export async function GET(_req: NextRequest) {
+  // Lazy import to prevent build-time execution
+  const SSEChannel = (await import("sse-channel")).default;
 
-export async function GET(req: NextRequest) {
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-  const encoder = new TextEncoder();
-
-  async function sendUpdate() {
-    const bids = await prisma.bid.findMany({
-      orderBy: { bidTime: 'desc' },
-      take: 20,
-      include: { item: true },
-    });
-    const payload = JSON.stringify(
-      bids.map((b) => ({
-        itemId: b.itemId,
-        bidValue: b.bidValue,
-        bidTime: b.bidTime,
-      }))
-    );
-    await writer.write(encoder.encode(`data: ${payload}\n\n`));
-  }
-
-  async function poll() {
-    while (true) {
-      await sendUpdate();
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // every 1.5s
-    }
-  }
-
-  poll();
-
-  const headers = new Headers({
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
+  const channel = new SSEChannel({
+    historySize: 0,
+    retryTimeout: 3000,
   });
 
-  return new Response(readable, { headers });
+  const stream = new ReadableStream({
+    start(controller) {
+      const send = (data: string) => controller.enqueue(`data: ${data}\n\n`);
+      const sendKeepAlive = setInterval(() => send("ping"), 15000);
+
+      channel.on("message", (msg: string) => send(JSON.stringify(msg)));
+
+      _req.signal.addEventListener("abort", () => {
+        clearInterval(sendKeepAlive);
+        controller.close();
+      });
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
 }

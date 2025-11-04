@@ -1,3 +1,5 @@
+export const runtime = "nodejs";
+
 import { NextRequest } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 

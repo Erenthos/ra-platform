@@ -1,47 +1,72 @@
+// --- Force this endpoint to run only at runtime on Node.js ---
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { NextRequest, NextResponse } from "next/server";
 
-const prisma = new PrismaClient();
-
-// POST: Submit bids for multiple items
 export async function POST(request: NextRequest) {
+  // ✅ Lazy import to avoid build-time execution of Prisma
+  const { PrismaClient } = await import("@prisma/client");
+  const prisma = new PrismaClient();
+
   try {
-    const { auctionId, bids } = await request.json();
+    const body: {
+      itemId: number;
+      supplierId: number;
+      bidValue: number;
+    } = await request.json();
 
-    if (!auctionId || !bids) {
-      return NextResponse.json({ error: 'Missing auctionId or bids' }, { status: 400 });
+    const { itemId, supplierId, bidValue } = body;
+
+    if (!itemId || !supplierId || !bidValue) {
+      return NextResponse.json(
+        { error: "Missing required bid fields" },
+        { status: 400 }
+      );
     }
 
-    let placed = 0;
+    // Get auction and validate minimum decrement step
+    const auction = await prisma.auction.findFirst({
+      where: { items: { some: { id: itemId } } },
+    });
 
-    for (const [itemIdStr, val] of Object.entries(bids || {})) {
-      const itemId = Number(itemIdStr);
-      const bidValue = Number(val);
-
-      if (!bidValue || bidValue <= 0) continue;
-
-      // Fetch current min bid and decrement step
-      const item = await prisma.item.findUnique({ where: { id: itemId }, include: { auction: true } });
-      if (!item) continue;
-
-      const minBid = await prisma.bid.findFirst({ where: { itemId }, orderBy: { bidValue: 'asc' } });
-      const currentMin = minBid ? minBid.bidValue : item.auction.startPrice;
-      const decrement = item.auction.decrementStep;
-
-      // Validate reverse auction rules
-      if (bidValue >= currentMin) continue;
-      if (((currentMin - bidValue) % decrement) !== 0) continue;
-
-      // For demo, supplierId = 2 (replace with real auth later)
-      await prisma.bid.create({ data: { itemId, supplierId: 2, bidValue } });
-      placed++;
+    if (!auction) {
+      return NextResponse.json(
+        { error: "Auction not found for this item" },
+        { status: 404 }
+      );
     }
 
-    return NextResponse.json({ success: true, placed });
-  } catch (error) {
-    console.error('Error placing bids:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    const lastBid = await prisma.bid.findFirst({
+      where: { itemId },
+      orderBy: { bidValue: "asc" },
+    });
+
+    const minAllowedBid =
+      (lastBid ? Number(lastBid.bidValue) : Number(auction.startPrice)) -
+      Number(auction.decrementStep);
+
+    if (Number(bidValue) > minAllowedBid) {
+      return NextResponse.json(
+        {
+          error: `Bid must be ≤ ${minAllowedBid.toFixed(2)} as per decrement step`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const newBid = await prisma.bid.create({
+      data: {
+        itemId,
+        supplierId,
+        bidValue: Number(bidValue),
+      },
+    });
+
+    return NextResponse.json(newBid);
+  } catch (error: any) {
+    console.error("Error submitting bid:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

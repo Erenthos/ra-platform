@@ -39,8 +39,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { title, startPrice, decrementStep, durationMins, buyerId, itemsText } =
-      body;
+    const {
+      title,
+      startPrice,
+      decrementStep,
+      durationMins,
+      buyerId,
+      itemsText,
+    } = body;
 
     if (!buyerId) {
       return NextResponse.json(
@@ -49,27 +55,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create auction
+    // ✅ Create auction with proper buyer relation
     const auction = await prisma.auction.create({
       data: {
-        title,
+        title: title || "Untitled Auction",
         startPrice: Number(startPrice),
         decrementStep: Number(decrementStep),
-        durationMins: Number(durationMins),
+        durationMins: Number(durationMins) || 10,
         status: "SCHEDULED",
-        buyerId: Number(buyerId),
+        buyer: {
+          connect: { id: Number(buyerId) }, // ✅ Proper relational connect
+        },
       },
     });
 
-    // Add items (CSV or newline separated)
+    // ✅ Parse and add auction items
     const lines = (itemsText || "")
       .split("\n")
       .map((l: string) => l.trim())
       .filter(Boolean);
 
     for (const ln of lines) {
-      const parts = ln.split(",").map((p) => p.trim());
-      const [description, qty, uom] = parts;
+      const [description, qty, uom] = ln.split(",").map((p) => p.trim());
       await prisma.item.create({
         data: {
           auctionId: auction.id,

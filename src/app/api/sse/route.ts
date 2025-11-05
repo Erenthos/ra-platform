@@ -1,37 +1,46 @@
 import { NextRequest } from "next/server";
-import { auctionChannel } from "@/lib/sse";
+import { EventEmitter } from "events";
 
-// this is a streaming route (Server-Sent Events)
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const emitter = new EventEmitter();
+
+// Limit max listeners to avoid warnings
+emitter.setMaxListeners(50);
+
+// Called by clients to subscribe
 export async function GET(req: NextRequest) {
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
+  const stream = new ReadableStream({
+    start(controller) {
+      const send = (data: any) => {
+        controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
+      };
 
-  // attach listener
-  const listener = (message: any) => {
-    writer.write(
-      `event: ${message.event}\ndata: ${JSON.stringify(message.data)}\n\n`
-    );
-  };
+      // Send initial connection event
+      send({ type: "connected" });
 
-  auctionChannel.on("send", listener);
+      // Listen for updates
+      const listener = (update: any) => send(update);
+      emitter.on("update", listener);
 
-  // cleanup on disconnect
-  req.signal.addEventListener("abort", () => {
-    auctionChannel.removeListener("send", listener);
-    writer.close();
+      req.signal.addEventListener("abort", () => {
+        emitter.removeListener("update", listener);
+        controller.close();
+      });
+    },
   });
 
-  const headers = {
-    "Content-Type": "text/event-stream",
-    Connection: "keep-alive",
-    "Cache-Control": "no-cache",
-  };
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}
 
-  const encoder = new TextEncoder();
-  writer.write(encoder.encode("event: ping\ndata: connected\n\n"));
-
-  return new Response(readable, { headers });
+// Function for other APIs to trigger live updates
+export function broadcastBidUpdate(auctionId: number) {
+  emitter.emit("update", { type: "bid_update", auctionId });
 }

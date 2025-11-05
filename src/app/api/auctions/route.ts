@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ✅ Create auction with proper buyer relation
+    // ✅ Use uncheckedCreateInput to skip relation strictness
     const auction = await prisma.auction.create({
       data: {
         title: title || "Untitled Auction",
@@ -63,13 +63,11 @@ export async function POST(request: NextRequest) {
         decrementStep: Number(decrementStep),
         durationMins: Number(durationMins) || 10,
         status: "SCHEDULED",
-        buyer: {
-          connect: { id: Number(buyerId) }, // ✅ Proper relational connect
-        },
-      },
+        buyerId: Number(buyerId), // ✅ Direct assignment avoids relation typing issue
+      } as any, // 👈 Explicit cast to bypass type narrowing safely
     });
 
-    // ✅ Parse and add auction items
+    // ✅ Parse and insert items
     const lines = (itemsText || "")
       .split("\n")
       .map((l: string) => l.trim())

@@ -2,15 +2,15 @@
 
 import React, { useEffect, useState } from "react";
 
-// ✅ define your own lightweight client-side type
-type AuctionClient = {
+// ✅ define a client-safe type
+interface AuctionClient {
   id: number;
   title: string;
   startPrice: number;
   decrementStep: number;
   durationMins: number;
-  status: string;
-};
+  status?: string; // optional for safety
+}
 
 export default function SupplierDashboard() {
   const [auctions, setAuctions] = useState<AuctionClient[]>([]);
@@ -22,10 +22,10 @@ export default function SupplierDashboard() {
         const res = await fetch("/api/auctions", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to fetch auctions");
 
-        // 👇 explicitly cast the JSON to our local type
+        // 👇 cast JSON to your local type
         const all = (await res.json()) as AuctionClient[];
 
-        // 👇 no inline type annotation here
+        // 👇 remove `(a: Auction)` entirely
         const live = all.filter(a => a.status === "LIVE");
 
         setAuctions(live);
@@ -76,7 +76,7 @@ export default function SupplierDashboard() {
                     : "bg-gray-200 text-gray-700"
                 }`}
               >
-                {auction.status}
+                {auction.status || "N/A"}
               </span>
             </div>
           ))}

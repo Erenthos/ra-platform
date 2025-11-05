@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { broadcastBidUpdate } from "@/lib/sse";
 
 const prisma = new PrismaClient();
 
@@ -31,12 +32,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Auction not LIVE" }, { status: 400 });
     }
 
-    // For each item bid, insert new record if valid
+    // Collect all new bids
     const newBids: any[] = [];
 
     for (const b of bids) {
       const { itemId, bidValue } = b;
 
+      // Fetch current minimum bid
       const currentMin = await prisma.bid.findFirst({
         where: { itemId },
         orderBy: { bidValue: "asc" },
@@ -66,15 +68,8 @@ export async function POST(req: NextRequest) {
       newBids.push(newBid);
     }
 
-    // Broadcast update via SSE if needed
-    try {
-      const sse = await import("../sse/route");
-      if (sse.broadcastBidUpdate) {
-        sse.broadcastBidUpdate(auctionId);
-      }
-    } catch (e) {
-      console.warn("SSE not loaded:", e);
-    }
+    // ✅ Broadcast to all clients listening via SSE
+    broadcastBidUpdate(auctionId);
 
     return NextResponse.json({
       message: "Bids submitted successfully",
@@ -82,6 +77,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("Error submitting bids:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }

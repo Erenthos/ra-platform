@@ -2,18 +2,18 @@
 
 import React, { useEffect, useState } from "react";
 
-// ✅ Explicitly define the shape of auctions coming from the API
-type AuctionType = {
+// ✅ define your own lightweight client-side type
+type AuctionClient = {
   id: number;
   title: string;
   startPrice: number;
   decrementStep: number;
   durationMins: number;
-  status?: string; // optional so build never fails
+  status: string;
 };
 
 export default function SupplierDashboard() {
-  const [auctions, setAuctions] = useState<AuctionType[]>([]);
+  const [auctions, setAuctions] = useState<AuctionClient[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -22,10 +22,12 @@ export default function SupplierDashboard() {
         const res = await fetch("/api/auctions", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to fetch auctions");
 
-        const all = (await res.json()) as AuctionType[];
+        // 👇 explicitly cast the JSON to our local type
+        const all = (await res.json()) as AuctionClient[];
 
-        // ✅ don’t use inline type in callback
-        const live = all.filter((a) => a.status === "LIVE");
+        // 👇 no inline type annotation here
+        const live = all.filter(a => a.status === "LIVE");
+
         setAuctions(live);
       } catch (err: any) {
         console.error(err);
@@ -74,7 +76,7 @@ export default function SupplierDashboard() {
                     : "bg-gray-200 text-gray-700"
                 }`}
               >
-                {auction.status || "N/A"}
+                {auction.status}
               </span>
             </div>
           ))}

@@ -55,11 +55,29 @@ export default function BuyerDashboard() {
 
   const startAuction = async (auctionId: number) => {
     try {
-      await fetch(`/api/auctions/${auctionId}/start`, { method: "POST" });
-      alert("Auction started successfully!");
-      fetchAuctions();
+      const res = await fetch(`/api/auctions/${auctionId}/start`, { method: "POST" });
+      if (res.ok) {
+        alert("Auction started successfully!");
+        fetchAuctions();
+      } else {
+        alert("Failed to start auction");
+      }
     } catch {
-      alert("Failed to start auction");
+      alert("Error starting auction");
+    }
+  };
+
+  const closeAuction = async (auctionId: number) => {
+    try {
+      const res = await fetch(`/api/auctions/${auctionId}/close`, { method: "POST" });
+      if (res.ok) {
+        alert(`Auction #${auctionId} closed successfully.`);
+        fetchAuctions();
+      } else {
+        alert("Failed to close auction");
+      }
+    } catch {
+      alert("Error closing auction");
     }
   };
 
@@ -215,6 +233,7 @@ export default function BuyerDashboard() {
                 {auction.decrementStep}
               </p>
 
+              {/* START AUCTION */}
               {auction.status === "SCHEDULED" && (
                 <button
                   onClick={() => startAuction(auction.id)}
@@ -224,6 +243,29 @@ export default function BuyerDashboard() {
                 </button>
               )}
 
+              {/* CLOSE AUCTION */}
+              {auction.status === "LIVE" && (
+                <button
+                  onClick={() => closeAuction(auction.id)}
+                  className="mt-3 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm"
+                >
+                  ⛔ Close Auction
+                </button>
+              )}
+
+              {/* DOWNLOAD REPORT */}
+              {auction.status === "CLOSED" && (
+                <button
+                  onClick={() =>
+                    window.open(`/api/auctions/${auction.id}/summary`, "_blank")
+                  }
+                  className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm"
+                >
+                  📄 Download PDF Report
+                </button>
+              )}
+
+              {/* VIEW CURRENT BIDS */}
               <button
                 className="mt-4 text-indigo-600 hover:underline text-sm"
                 onClick={() =>

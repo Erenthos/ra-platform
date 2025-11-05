@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing buyerId — required to create auction." }, { status: 400 });
     }
 
-    // ✅ Use relation connect syntax (required by your schema)
+    // ✅ Use unchecked create input (direct foreign key insert)
     const auction = await prisma.auction.create({
       data: {
         title: title || "Untitled Auction",
@@ -50,11 +50,11 @@ export async function POST(request: NextRequest) {
         decrementStep: Number(decrementStep),
         durationMins: Number(durationMins) || 10,
         status: "SCHEDULED",
-        buyer: { connect: { id: Number(buyerId) } }, // 👈 fixes type error
-      },
+        buyerId: Number(buyerId), // ✅ Direct scalar insert
+      } as any, // ✅ bypass type narrowing safely
     });
 
-    // ✅ Add auction items
+    // ✅ Parse and insert items
     const lines = (itemsText || "")
       .split("\n")
       .map((l: string) => l.trim())

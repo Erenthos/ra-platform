@@ -28,19 +28,20 @@ export default function SupplierDashboard() {
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null);
   const [bids, setBids] = useState<{ [key: number]: string }>({});
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
-  // 🔄 Fetch all live auctions (with bids)
+  // 🔄 Fetch auctions (with bids + current minimum)
   const fetchAuctions = async () => {
     try {
       const res = await fetch("/api/auctions", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch auctions");
       const data = await res.json();
 
       const live = data.filter((a: any) => a.status === "LIVE");
-
-      // compute current min for each item
       live.forEach((auction: any) => {
         auction.items.forEach((item: any) => {
-          if (item.bids && item.bids.length > 0) {
+          if (item.bids?.length > 0) {
             item.currentMin = Math.min(...item.bids.map((b: any) => b.bidValue));
           } else {
             item.currentMin = null;
@@ -49,16 +50,17 @@ export default function SupplierDashboard() {
       });
 
       setAuctions(live);
+
       if (selectedAuction) {
         const updated = live.find((a: any) => a.id === selectedAuction.id);
         if (updated) setSelectedAuction(updated);
       }
     } catch (err) {
-      console.error("Error fetching auctions:", err);
+      console.error("❌ Error fetching auctions:", err);
     }
   };
 
-  // ⚡ Real-time updates via SSE
+  // ⚡ Real-time SSE updates
   useEffect(() => {
     fetchAuctions();
 
@@ -67,10 +69,11 @@ export default function SupplierDashboard() {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "bid_update") {
+          console.log("🔄 SSE update received — refreshing auctions");
           fetchAuctions();
         }
-      } catch (e) {
-        console.error("SSE parse error:", e);
+      } catch (err) {
+        console.error("SSE error:", err);
       }
     };
 
@@ -81,23 +84,56 @@ export default function SupplierDashboard() {
     setBids((prev) => ({ ...prev, [itemId]: value }));
   };
 
+  // 🚀 Submit all entered bids
   const submitBids = async () => {
     if (!selectedAuction) return;
     const supplierId = Number(localStorage.getItem("supplierId"));
-    const promises = Object.entries(bids).map(([itemId, bidValue]) =>
-      fetch("/api/bids", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          itemId: Number(itemId),
-          supplierId,
-          bidValue: Number(bidValue),
-        }),
-      })
-    );
-    await Promise.all(promises);
-    setBids({});
-    fetchAuctions();
+
+    if (!supplierId || isNaN(supplierId)) {
+      alert("Supplier not logged in. Please sign in again.");
+      return;
+    }
+
+    const entered = Object.entries(bids).filter(([_, val]) => val.trim() !== "");
+    if (entered.length === 0) {
+      alert("Please enter at least one bid before submitting.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setMessage(null);
+
+      for (const [itemId, bidValue] of entered) {
+        const response = await fetch("/api/bids", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            itemId: Number(itemId),
+            supplierId,
+            bidValue: Number(bidValue),
+          }),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+          console.error("❌ Bid failed:", result);
+          alert(`Bid failed: ${result.error}`);
+          continue;
+        } else {
+          console.log("✅ Bid success:", result);
+        }
+      }
+
+      setMessage("✅ Bids submitted successfully!");
+      setBids({});
+      fetchAuctions();
+    } catch (err) {
+      console.error("🚨 Bid submission error:", err);
+      alert("Error submitting bids. See console for details.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -105,6 +141,12 @@ export default function SupplierDashboard() {
       <h1 className="text-3xl font-bold text-center text-indigo-700 mb-6">
         Supplier Dashboard
       </h1>
+
+      {message && (
+        <div className="text-center mb-4 text-green-600 font-medium">
+          {message}
+        </div>
+      )}
 
       {!selectedAuction ? (
         <>
@@ -187,10 +229,15 @@ export default function SupplierDashboard() {
 
           <div className="flex justify-end mt-4">
             <button
+              disabled={loading}
               onClick={submitBids}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg"
+              className={`${
+                loading
+                  ? "bg-gray-400"
+                  : "bg-indigo-600 hover:bg-indigo-700"
+              } text-white px-6 py-2 rounded-lg transition`}
             >
-              🚀 Submit Bids
+              {loading ? "Submitting..." : "🚀 Submit Bids"}
             </button>
           </div>
         </div>

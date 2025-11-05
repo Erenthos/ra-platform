@@ -24,10 +24,7 @@ export async function GET() {
     return NextResponse.json(auctions);
   } catch (error) {
     console.error("Error fetching auctions:", error);
-    return NextResponse.json(
-      { error: "Error fetching auctions" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Error fetching auctions" }, { status: 500 });
   } finally {
     await prisma.$disconnect();
   }
@@ -39,23 +36,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const {
-      title,
-      startPrice,
-      decrementStep,
-      durationMins,
-      buyerId,
-      itemsText,
-    } = body;
+    const { title, startPrice, decrementStep, durationMins, buyerId, itemsText } = body;
 
     if (!buyerId) {
-      return NextResponse.json(
-        { error: "Missing buyerId — required to create auction." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing buyerId — required to create auction." }, { status: 400 });
     }
 
-    // ✅ Proper Prisma relation creation
+    // ✅ Use relation connect syntax (required by your schema)
     const auction = await prisma.auction.create({
       data: {
         title: title || "Untitled Auction",
@@ -63,15 +50,11 @@ export async function POST(request: NextRequest) {
         decrementStep: Number(decrementStep),
         durationMins: Number(durationMins) || 10,
         status: "SCHEDULED",
-        buyer: {
-          connect: {
-            id: Number(buyerId), // 👈 this is the key fix
-          },
-        },
+        buyer: { connect: { id: Number(buyerId) } }, // 👈 fixes type error
       },
     });
 
-    // ✅ Add items
+    // ✅ Add auction items
     const lines = (itemsText || "")
       .split("\n")
       .map((l: string) => l.trim())
@@ -95,10 +78,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error creating auction:", error);
-    return NextResponse.json(
-      { error: "Error creating auction" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Error creating auction" }, { status: 500 });
   } finally {
     await prisma.$disconnect();
   }

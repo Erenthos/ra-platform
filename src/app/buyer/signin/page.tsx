@@ -1,17 +1,21 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 export default function BuyerSignIn() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setMessage("Logging in...");
+  const handleSignIn = async () => {
+    if (!username || !password) {
+      setError("Please enter both username and password");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
 
     try {
       const res = await fetch("/api/auth/signin", {
@@ -20,64 +24,60 @@ export default function BuyerSignIn() {
         body: JSON.stringify({ username, password, role: "buyer" }),
       });
 
-      const data = await res.json();
-      if (res.ok) {
-        setMessage("Login successful! Redirecting...");
-        setTimeout(() => {
-          router.push("/buyer/dashboard");
-        }, 1000);
-      } else {
-        setMessage(data.error || "Invalid credentials.");
+      const result = await res.json();
+
+      if (!res.ok) {
+        throw new Error(result.error || "Login failed");
       }
-    } catch (error) {
-      console.error(error);
-      setMessage("Server error while logging in.");
+
+      // ✅ Save all credentials locally for later API use
+      localStorage.setItem("buyerToken", result.token);
+      localStorage.setItem("buyerUsername", result.username);
+      localStorage.setItem("buyerRole", result.role);
+      localStorage.setItem("buyerId", String(result.id || result.userId || 0)); // ensure ID saved
+
+      // Redirect to dashboard
+      window.location.href = "/buyer/dashboard";
+    } catch (err: any) {
+      setError(err.message || "Something went wrong");
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center p-4">
-      <div className="bg-white shadow-xl rounded-2xl w-full max-w-md p-8 border border-gray-100">
-        <h1 className="text-3xl font-bold text-center text-blue-700 mb-6">
-          Buyer Sign In
-        </h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none"
-          />
-          <button
-            type="submit"
-            className="w-full bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition"
-          >
-            Sign In
-          </button>
-        </form>
-        {message && (
-          <p className="text-center text-gray-600 mt-4 text-sm">{message}</p>
-        )}
-        <p className="text-sm text-center text-gray-500 mt-6">
-          Don't have an account?{" "}
-          <a
-            href="/buyer/signup"
-            className="text-blue-600 font-medium hover:underline"
-          >
-            Sign Up
-          </a>
-        </p>
+    <div className="min-h-screen flex flex-col justify-center items-center bg-gray-50">
+      <div className="bg-white shadow-md rounded-xl p-8 w-full max-w-sm border border-gray-100">
+        <h2 className="text-2xl font-bold text-indigo-700 mb-6 text-center">Buyer Sign In</h2>
+
+        {error && <p className="text-red-600 text-sm mb-4 text-center">{error}</p>}
+
+        <input
+          type="text"
+          placeholder="Username"
+          className="border p-2 rounded w-full mb-3"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
+
+        <input
+          type="password"
+          placeholder="Password"
+          className="border p-2 rounded w-full mb-5"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+
+        <button
+          onClick={handleSignIn}
+          disabled={loading}
+          className={`w-full py-2 rounded text-white font-semibold transition ${
+            loading ? "bg-gray-400" : "bg-indigo-600 hover:bg-indigo-700"
+          }`}
+        >
+          {loading ? "Signing In..." : "Sign In"}
+        </button>
       </div>
-    </main>
+    </div>
   );
 }

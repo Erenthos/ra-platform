@@ -14,7 +14,7 @@ export default function BuyerDashboard() {
   const [durationMins, setDurationMins] = useState("10");
   const [itemsText, setItemsText] = useState("");
 
-  // Fetch auctions
+  // Fetch auctions on mount
   useEffect(() => {
     fetchAuctions();
   }, []);
@@ -34,7 +34,7 @@ export default function BuyerDashboard() {
     }
   }
 
-  // Create auction
+  // Create new auction
   async function handleCreateAuction(e: React.FormEvent) {
     e.preventDefault();
     try {
@@ -90,14 +90,45 @@ export default function BuyerDashboard() {
     }
   }
 
+  // Close auction
+  async function closeAuction(id: number) {
+    if (!confirm("Are you sure you want to close this auction?")) return;
+
+    try {
+      const res = await fetch(`/api/auctions/close/${id}`, {
+        method: "PATCH",
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        alert("Auction closed successfully!");
+        fetchAuctions();
+      } else {
+        alert(data.error || "Failed to close auction.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Server error while closing auction.");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 p-8">
-      <h1 className="text-3xl font-bold text-blue-700 mb-8">
-        Buyer Dashboard
-      </h1>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold text-blue-700">
+          Buyer Dashboard
+        </h1>
+        <button
+          onClick={fetchAuctions}
+          className="mt-4 sm:mt-0 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+        >
+          🔄 Refresh
+        </button>
+      </div>
 
       {/* Auction Creation Form */}
-      <section className="bg-white shadow-lg rounded-xl p-6 mb-10 border border-gray-100 max-w-3xl">
+      <section className="bg-white shadow-lg rounded-xl p-6 mb-10 border border-gray-100 max-w-3xl mx-auto">
         <h2 className="text-xl font-semibold text-blue-600 mb-4">
           Create New Auction
         </h2>
@@ -157,16 +188,16 @@ export default function BuyerDashboard() {
 
       {/* Auction List */}
       <section>
-        <h2 className="text-xl font-semibold text-gray-700 mb-4">
+        <h2 className="text-xl font-semibold text-gray-700 mb-4 text-center sm:text-left">
           Your Auctions
         </h2>
 
         {loading ? (
-          <p>Loading auctions...</p>
+          <p className="text-center">Loading auctions...</p>
         ) : error ? (
-          <p className="text-red-600">{error}</p>
+          <p className="text-red-600 text-center">{error}</p>
         ) : auctions.length === 0 ? (
-          <p className="text-gray-500">No auctions created yet.</p>
+          <p className="text-gray-500 text-center">No auctions created yet.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {auctions.map((auction) => (
@@ -207,14 +238,29 @@ export default function BuyerDashboard() {
                     onClick={() => startAuction(auction.id)}
                     className="mt-2 w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition"
                   >
-                    Start Auction
+                    ▶️ Start Auction
                   </button>
                 )}
 
-                {/* Live Auction Indicator */}
+                {/* Close Auction Button */}
+                {auction.status === "LIVE" && (
+                  <button
+                    onClick={() => closeAuction(auction.id)}
+                    className="mt-2 w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition"
+                  >
+                    ⏹ Close Auction
+                  </button>
+                )}
+
+                {/* Status Label */}
                 {auction.status === "LIVE" && (
                   <div className="mt-2 text-center text-green-600 font-semibold">
                     🔴 Auction is LIVE
+                  </div>
+                )}
+                {auction.status === "CLOSED" && (
+                  <div className="mt-2 text-center text-gray-500 font-medium">
+                    ✅ Auction Closed
                   </div>
                 )}
               </div>

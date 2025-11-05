@@ -1,36 +1,26 @@
-// --- Node-only runtime (no pre-rendering) ---
+import { NextRequest, NextResponse } from "next/server";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-import { NextRequest, NextResponse } from "next/server";
-import { broadcastBidUpdate } from "../sse/broadcaster";
-
-export async function POST(request: NextRequest) {
-  const { PrismaClient } = await import("@prisma/client");
-  const prisma = new PrismaClient();
-
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-    const { auctionId, bids, supplierId } = body;
+    const { supplierId, auctionId, bids } = await req.json();
 
-    if (!auctionId || !Array.isArray(bids) || bids.length === 0) {
+    if (!supplierId || !auctionId || !bids?.length) {
       return NextResponse.json(
-        { error: "Invalid request: missing auctionId or bids array" },
+        { error: "Missing fields: supplierId, auctionId, or bids" },
         { status: 400 }
       );
     }
 
-    // Fetch auction + items + existing bids
+    // Fetch auction and its items
     const auction = await prisma.auction.findUnique({
       where: { id: auctionId },
-      include: {
-        items: {
-          include: {
-            bids: { orderBy: { bidValue: "asc" } },
-          },
-        },
-      },
+      include: { items: true },
     });
 
     if (!auction) {
@@ -38,83 +28,60 @@ export async function POST(request: NextRequest) {
     }
 
     if (auction.status !== "LIVE") {
-      return NextResponse.json(
-        { error: "Auction is not currently live" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Auction not LIVE" }, { status: 400 });
     }
 
-    const results: any[] = [];
+    // For each item bid, insert new record if valid
+    const newBids: any[] = [];
 
     for (const b of bids) {
       const { itemId, bidValue } = b;
-      if (!itemId || !bidValue || bidValue <= 0) continue;
 
-      const item = auction.items.find((i) => i.id === itemId);
-      if (!item) {
-        results.push({ itemId, status: "Item not found" });
-        continue;
+      const currentMin = await prisma.bid.findFirst({
+        where: { itemId },
+        orderBy: { bidValue: "asc" },
+      });
+
+      // Enforce decrement step rule
+      if (
+        currentMin &&
+        bidValue >= currentMin.bidValue - auction.decrementStep
+      ) {
+        return NextResponse.json(
+          {
+            error: `Bid too high for item ${itemId}. Must be at least ${auction.decrementStep} less than current min.`,
+          },
+          { status: 400 }
+        );
       }
 
-      const currentMin =
-        item.bids.length > 0 ? item.bids[0].bidValue : auction.startPrice;
-      const decrement = auction.decrementStep;
-
-      if (bidValue >= currentMin || currentMin - bidValue < decrement) {
-        results.push({
-          itemId,
-          status: `❌ Must be at least ${decrement} lower than current min (${currentMin})`,
-        });
-        continue;
-      }
-
-      const supplier = supplierId || 999; // temporary fallback
-
-      await prisma.bid.create({
+      const newBid = await prisma.bid.create({
         data: {
           itemId,
-          supplierId: supplier,
+          supplierId,
           bidValue,
         },
       });
 
-      results.push({ itemId, status: "✅ Accepted", bidValue });
+      newBids.push(newBid);
     }
 
-    // Recalculate updated current mins
-    const updatedAuction = await prisma.auction.findUnique({
-      where: { id: auctionId },
-      include: {
-        items: {
-          include: {
-            bids: { orderBy: { bidValue: "asc" }, take: 1 },
-          },
-        },
-      },
+    // Broadcast update via SSE if needed
+    try {
+      const sse = await import("../sse/route");
+      if (sse.broadcastBidUpdate) {
+        sse.broadcastBidUpdate(auctionId);
+      }
+    } catch (e) {
+      console.warn("SSE not loaded:", e);
+    }
+
+    return NextResponse.json({
+      message: "Bids submitted successfully",
+      bids: newBids,
     });
-
-    // 🔥 Broadcast new lowest bids via SSE
-    await broadcastBidUpdate(auctionId);
-
-    const response = {
-      message: "Bids processed successfully",
-      results,
-      updated: updatedAuction
-        ? updatedAuction.items.map((i) => ({
-            itemId: i.id,
-            currentMin: i.bids?.[0]?.bidValue ?? null,
-          }))
-        : [],
-    };
-
-    return NextResponse.json(response);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error submitting bids:", error);
-    return NextResponse.json(
-      { error: "Server error submitting bids" },
-      { status: 500 }
-    );
-  } finally {
-    await prisma.$disconnect();
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

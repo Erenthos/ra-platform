@@ -1,42 +1,44 @@
-// --- Node-only runtime (no pre-rendering) ---
+import { NextRequest, NextResponse } from "next/server";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-import { NextRequest, NextResponse } from "next/server";
-
+// POST /api/auctions/[id]/close
 export async function POST(
-  request: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { PrismaClient } = await import("@prisma/client");
-  const prisma = new PrismaClient();
-
   try {
-    const auctionId = Number(params.id);
+    const auctionId = parseInt(params.id);
     const auction = await prisma.auction.findUnique({ where: { id: auctionId } });
 
     if (!auction) {
       return NextResponse.json({ error: "Auction not found" }, { status: 404 });
     }
 
-    if (auction.status === "CLOSED") {
-      return NextResponse.json({ error: "Auction already closed" }, { status: 400 });
+    if (auction.status !== "LIVE") {
+      return NextResponse.json(
+        { error: "Only live auctions can be closed" },
+        { status: 400 }
+      );
     }
 
-    const updated = await prisma.auction.update({
+    await prisma.auction.update({
       where: { id: auctionId },
-      data: { status: "CLOSED", endTime: new Date() },
+      data: {
+        status: "CLOSED",
+        endTime: new Date(),
+      },
     });
 
     return NextResponse.json({
-      message: "Auction closed successfully",
-      auction: updated,
+      message: `Auction #${auctionId} closed successfully.`,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error closing auction:", error);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
+    return NextResponse.json({ error: "Failed to close auction" }, { status: 500 });
   }
 }

@@ -17,18 +17,19 @@ export default function SupplierSignIn() {
       const res = await fetch("/api/auth/signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        // 👇 Add role explicitly
+        body: JSON.stringify({ username, password, role: "supplier" }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed");
 
-      // ✅ Save supplier info for session persistence
+      // ✅ Save supplier session
       localStorage.setItem("supplierId", data.user.id.toString());
       localStorage.setItem("supplierUsername", data.user.username);
       localStorage.setItem("role", data.user.role);
 
-      alert("✅ Login successful!");
+      alert("✅ Supplier login successful!");
       router.push("/supplier/dashboard");
     } catch (err: any) {
       console.error("Login error:", err);

@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// GET — Fetch all auctions with items + bids
+// ✅ GET — Fetch all auctions (with items, bids, and supplier info)
 export async function GET(req: NextRequest) {
   try {
     const auctions = await prisma.auction.findMany({
@@ -14,23 +14,38 @@ export async function GET(req: NextRequest) {
       include: {
         items: {
           include: {
-            bids: true, // ✅ include bids inside each item
+            bids: {
+              include: {
+                supplier: true, // ✅ Add supplier info (username, id)
+              },
+              orderBy: { bidValue: "asc" },
+            },
           },
         },
       },
     });
 
-    // Flatten bids for easier display on buyer dashboard
+    // ✅ Structure data for dashboard display
     const result = auctions.map((auction) => ({
-      ...auction,
-      bids: auction.items.flatMap((item) =>
-        item.bids.map((b) => ({
-          id: b.id,
-          supplierId: b.supplierId,
-          itemId: item.id,
-          bidValue: b.bidValue,
-        }))
-      ),
+      id: auction.id,
+      title: auction.title,
+      status: auction.status,
+      decrementStep: auction.decrementStep,
+      durationMins: auction.durationMins,
+      startPrice: auction.startPrice,
+      createdAt: auction.createdAt,
+      items: auction.items.map((item) => ({
+        id: item.id,
+        description: item.description,
+        quantity: item.quantity,
+        uom: item.uom,
+        bids: item.bids.map((bid) => ({
+          id: bid.id,
+          supplierId: bid.supplierId,
+          supplierName: bid.supplier?.username || `Supplier #${bid.supplierId}`,
+          bidValue: bid.bidValue,
+        })),
+      })),
     }));
 
     return NextResponse.json(result);
@@ -43,7 +58,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST — Create new auction
+// ✅ POST — Create new auction (unchanged)
 export async function POST(req: NextRequest) {
   try {
     const { title, startPrice, decrementStep, durationMins, itemsText } =
@@ -56,10 +71,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // For now, assume a single buyer (extend later with auth)
+    // Assuming buyer is logged in (placeholder ID)
     const buyerId = 1;
 
-    // Create auction
     const auction = await prisma.auction.create({
       data: {
         title,
@@ -71,7 +85,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Parse items from text (e.g. "Cable, 100, M")
+    // Parse items (CSV lines: "Description, Qty, UOM")
     const lines = (itemsText || "")
       .split("\n")
       .map((l: string) => l.trim())

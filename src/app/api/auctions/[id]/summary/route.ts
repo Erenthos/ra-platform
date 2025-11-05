@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import PDFDocument from "pdfkit";
-import { Readable } from "stream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +15,7 @@ export async function GET(
   const auctionId = Number(params.id);
 
   try {
-    // ✅ Fetch auction data including items and bids
+    // ✅ Fetch auction details with buyer, items, and bids
     const auction = await prisma.auction.findUnique({
       where: { id: auctionId },
       include: {
@@ -24,9 +23,7 @@ export async function GET(
         items: {
           include: {
             bids: {
-              include: {
-                supplier: { select: { username: true } },
-              },
+              include: { supplier: { select: { username: true } } },
               orderBy: { bidValue: "asc" },
             },
           },
@@ -35,22 +32,19 @@ export async function GET(
     });
 
     if (!auction) {
-      return NextResponse.json(
-        { error: "Auction not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Auction not found" }, { status: 404 });
     }
 
-    // ✅ Create the PDF
+    // ✅ Create PDF document
     const doc = new PDFDocument({ margin: 40 });
-    const buffers: Uint8Array[] = [];
+    const buffers: Buffer[] = [];
 
-    doc.on("data", buffers.push.bind(buffers));
-    const done = new Promise<Buffer>((resolve) => {
+    doc.on("data", (chunk) => buffers.push(chunk));
+    const pdfPromise = new Promise<Buffer>((resolve) => {
       doc.on("end", () => resolve(Buffer.concat(buffers)));
     });
 
-    // ✅ Header
+    // ✅ Write header info
     doc
       .fontSize(20)
       .fillColor("#1e3a8a")
@@ -67,11 +61,11 @@ export async function GET(
       .text(`Duration: ${auction.durationMins} mins`)
       .moveDown();
 
-    // ✅ Items table
+    // ✅ Items and Bids
     doc.fontSize(14).fillColor("#1e3a8a").text("Items and Bids", { underline: true }).moveDown(0.5);
     doc.fontSize(11).fillColor("black");
 
-    auction.items.forEach((item) => {
+    for (const item of auction.items) {
       doc.text(`• ${item.description} (${item.quantity} ${item.uom})`);
       if (item.bids.length === 0) {
         doc.text("   No bids submitted yet.").moveDown(0.5);
@@ -83,12 +77,12 @@ export async function GET(
         });
         doc.moveDown(0.5);
       }
-    });
+    }
 
-    // ✅ Determine winners
+    // ✅ Winner summary
     doc.moveDown(1);
     doc.fontSize(14).fillColor("#1e3a8a").text("Winner Summary", { underline: true }).moveDown(0.5);
-    auction.items.forEach((item) => {
+    for (const item of auction.items) {
       const winner = item.bids[0];
       if (winner) {
         doc
@@ -96,18 +90,18 @@ export async function GET(
           .fillColor("black")
           .text(`${item.description} → Winner: ${winner.supplier.username} @ ₹${winner.bidValue}`);
       }
-    });
+    }
 
     doc.end();
-    const pdfBuffer = await done;
 
-    // ✅ Convert to ArrayBuffer for NextResponse
-    const arrayBuffer = pdfBuffer.buffer.slice(
-      pdfBuffer.byteOffset,
-      pdfBuffer.byteOffset + pdfBuffer.byteLength
-    );
+    // ✅ Wait for the full buffer
+    const pdfBuffer = await pdfPromise;
 
-    return new NextResponse(arrayBuffer, {
+    // ✅ Convert to Uint8Array (Next.js-safe BodyInit)
+    const uint8Array = new Uint8Array(pdfBuffer);
+
+    // ✅ Return as downloadable file
+    return new NextResponse(uint8Array, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="Auction_${auctionId}_Summary.pdf"`,

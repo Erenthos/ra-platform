@@ -1,46 +1,61 @@
-// --- Node-only runtime (no pre-rendering) ---
+import { NextRequest, NextResponse } from "next/server";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-import { NextRequest, NextResponse } from "next/server";
-
+// POST /api/auctions/[id]/start
 export async function POST(
-  request: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // Lazy import Prisma to prevent build-time bundling
-  const { PrismaClient } = await import("@prisma/client");
-  const prisma = new PrismaClient();
-
   try {
-    const auctionId = Number(params.id);
+    const auctionId = parseInt(params.id);
     const auction = await prisma.auction.findUnique({ where: { id: auctionId } });
 
     if (!auction) {
       return NextResponse.json({ error: "Auction not found" }, { status: 404 });
     }
 
-    if (auction.status === "LIVE") {
-      return NextResponse.json({ error: "Auction already live" }, { status: 400 });
+    if (auction.status !== "SCHEDULED") {
+      return NextResponse.json(
+        { error: "Auction already started or closed" },
+        { status: 400 }
+      );
     }
 
-    const now = new Date();
-    const endTime = new Date(now.getTime() + auction.durationMins * 60 * 1000);
+    const startTime = new Date();
+    const endTime = new Date(startTime.getTime() + auction.durationMins * 60000);
 
-    const updated = await prisma.auction.update({
+    // Update auction as LIVE
+    await prisma.auction.update({
       where: { id: auctionId },
-      data: { status: "LIVE", startTime: now, endTime },
+      data: { status: "LIVE", startTime, endTime },
     });
+
+    // Schedule automatic closure
+    setTimeout(async () => {
+      try {
+        const current = await prisma.auction.findUnique({ where: { id: auctionId } });
+        if (current && current.status === "LIVE") {
+          await prisma.auction.update({
+            where: { id: auctionId },
+            data: { status: "CLOSED", endTime: new Date() },
+          });
+          console.log(`⏱️ Auction #${auctionId} auto-closed after duration.`);
+        }
+      } catch (e) {
+        console.error("Auto-close error:", e);
+      }
+    }, auction.durationMins * 60000);
 
     return NextResponse.json({
-      message: "Auction started successfully",
-      auction: updated,
+      message: `Auction #${auctionId} started successfully`,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error starting auction:", error);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
+    return NextResponse.json({ error: "Failed to start auction" }, { status: 500 });
   }
 }

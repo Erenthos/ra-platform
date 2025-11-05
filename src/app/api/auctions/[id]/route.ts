@@ -14,7 +14,7 @@ export async function GET(
   try {
     const auctionId = parseInt(params.id);
 
-    // Get auction, items, and bids with min values per item
+    // Get auction, items, and bids for each item
     const auction = await prisma.auction.findUnique({
       where: { id: auctionId },
       include: {
@@ -22,11 +22,9 @@ export async function GET(
           include: {
             bids: {
               orderBy: { bidValue: "asc" },
-              take: 1,
             },
           },
         },
-        bids: true,
       },
     });
 
@@ -40,10 +38,14 @@ export async function GET(
       description: item.description,
       quantity: item.quantity,
       uom: item.uom,
-      currentMin: item.bids.length > 0 ? item.bids[0].bidValue : null,
+      currentMin:
+        item.bids && item.bids.length > 0
+          ? Math.min(...item.bids.map((b) => b.bidValue))
+          : null,
     }));
 
-    return NextResponse.json({
+    // Prepare final response
+    const responseData = {
       id: auction.id,
       title: auction.title,
       status: auction.status,
@@ -51,9 +53,11 @@ export async function GET(
       durationMins: auction.durationMins,
       startPrice: auction.startPrice,
       items: itemsWithMin,
-    });
+    };
+
+    return NextResponse.json(responseData);
   } catch (error) {
-    console.error("Error fetching auction:", error);
+    console.error("Error fetching auction details:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

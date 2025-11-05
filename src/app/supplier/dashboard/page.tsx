@@ -31,7 +31,7 @@ export default function SupplierDashboard() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  // 🔄 Fetch auctions (with bids + current minimum)
+  // 🧠 Fetch all live auctions with bids and current minimum
   const fetchAuctions = async () => {
     try {
       const res = await fetch("/api/auctions", { cache: "no-store" });
@@ -39,9 +39,11 @@ export default function SupplierDashboard() {
       const data = await res.json();
 
       const live = data.filter((a: any) => a.status === "LIVE");
+
+      // compute current minimum for each item
       live.forEach((auction: any) => {
         auction.items.forEach((item: any) => {
-          if (item.bids?.length > 0) {
+          if (item.bids && item.bids.length > 0) {
             item.currentMin = Math.min(...item.bids.map((b: any) => b.bidValue));
           } else {
             item.currentMin = null;
@@ -51,6 +53,7 @@ export default function SupplierDashboard() {
 
       setAuctions(live);
 
+      // if a specific auction is selected, update it
       if (selectedAuction) {
         const updated = live.find((a: any) => a.id === selectedAuction.id);
         if (updated) setSelectedAuction(updated);
@@ -60,24 +63,36 @@ export default function SupplierDashboard() {
     }
   };
 
-  // ⚡ Real-time SSE updates
+  // ⚡ Real-time updates via SSE
   useEffect(() => {
     fetchAuctions();
 
-    const sse = new EventSource("/api/sse");
-    sse.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "bid_update") {
-          console.log("🔄 SSE update received — refreshing auctions");
-          fetchAuctions();
+    let sse: EventSource | null = null;
+
+    const connectSSE = () => {
+      sse = new EventSource("/api/sse");
+
+      sse.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "bid_update") {
+            console.log("🔄 Received live bid update — refreshing auctions");
+            fetchAuctions(); // refresh all supplier views in real time
+          }
+        } catch (err) {
+          console.error("SSE parse error:", err);
         }
-      } catch (err) {
-        console.error("SSE error:", err);
-      }
+      };
+
+      sse.onerror = (e) => {
+        console.error("SSE connection lost, reconnecting in 5s...", e);
+        sse?.close();
+        setTimeout(connectSSE, 5000);
+      };
     };
 
-    return () => sse.close();
+    connectSSE();
+    return () => sse?.close();
   }, []);
 
   const handleBidChange = (itemId: number, value: string) => {
@@ -121,7 +136,7 @@ export default function SupplierDashboard() {
           alert(`Bid failed: ${result.error}`);
           continue;
         } else {
-          console.log("✅ Bid success:", result);
+          console.log("✅ Bid submitted:", result);
         }
       }
 
@@ -130,17 +145,31 @@ export default function SupplierDashboard() {
       fetchAuctions();
     } catch (err) {
       console.error("🚨 Bid submission error:", err);
-      alert("Error submitting bids. See console for details.");
+      alert("Error submitting bids. Check console for details.");
     } finally {
       setLoading(false);
     }
   };
 
+  // 🧭 Logout handler (optional)
+  const handleLogout = () => {
+    localStorage.clear();
+    window.location.href = "/supplier/signin";
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
-      <h1 className="text-3xl font-bold text-center text-indigo-700 mb-6">
-        Supplier Dashboard
-      </h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-indigo-700">
+          Supplier Dashboard
+        </h1>
+        <button
+          onClick={handleLogout}
+          className="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg"
+        >
+          Logout
+        </button>
+      </div>
 
       {message && (
         <div className="text-center mb-4 text-green-600 font-medium">
@@ -151,21 +180,19 @@ export default function SupplierDashboard() {
       {!selectedAuction ? (
         <>
           {auctions.length === 0 ? (
-            <p className="text-center text-gray-500">No live auctions.</p>
+            <p className="text-center text-gray-500">No live auctions right now.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {auctions.map((a) => (
                 <div
                   key={a.id}
-                  className="bg-white p-4 rounded-xl shadow hover:shadow-md transition"
+                  className="bg-white p-5 rounded-xl shadow hover:shadow-md transition border border-gray-100"
                 >
-                  <h2 className="text-lg font-semibold">{a.title}</h2>
-                  <p className="text-sm text-gray-500">
-                    {a.items.length} items
-                  </p>
+                  <h2 className="text-lg font-semibold text-gray-800">{a.title}</h2>
+                  <p className="text-sm text-gray-500 mb-3">{a.items.length} items</p>
                   <button
                     onClick={() => setSelectedAuction(a)}
-                    className="bg-indigo-600 text-white px-4 py-2 mt-3 rounded-lg text-sm"
+                    className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 transition"
                   >
                     View & Bid
                   </button>
@@ -176,13 +203,13 @@ export default function SupplierDashboard() {
         </>
       ) : (
         <div className="max-w-5xl mx-auto bg-white p-6 rounded-2xl shadow-md border border-gray-200">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-between items-center mb-5">
             <h2 className="text-2xl font-semibold text-gray-800">
               {selectedAuction.title}
             </h2>
             <button
               onClick={() => setSelectedAuction(null)}
-              className="text-sm text-gray-500 hover:text-gray-700"
+              className="text-sm text-gray-600 hover:text-gray-800"
             >
               ← Back
             </button>
@@ -205,7 +232,7 @@ export default function SupplierDashboard() {
                   <td className="p-2 border">{item.quantity}</td>
                   <td className="p-2 border">{item.uom}</td>
                   <td
-                    className={`p-2 border ${
+                    className={`p-2 border font-semibold transition-all ${
                       item.currentMin ? "text-green-700" : "text-gray-400"
                     }`}
                   >
@@ -215,9 +242,7 @@ export default function SupplierDashboard() {
                     <input
                       type="number"
                       value={bids[item.id] || ""}
-                      onChange={(e) =>
-                        handleBidChange(item.id, e.target.value)
-                      }
+                      onChange={(e) => handleBidChange(item.id, e.target.value)}
                       className="w-24 p-1 border rounded-md text-center"
                       placeholder="Enter"
                     />
@@ -227,7 +252,7 @@ export default function SupplierDashboard() {
             </tbody>
           </table>
 
-          <div className="flex justify-end mt-4">
+          <div className="flex justify-end mt-6">
             <button
               disabled={loading}
               onClick={submitBids}

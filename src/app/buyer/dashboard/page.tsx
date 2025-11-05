@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useState } from "react";
 
 interface Bid {
@@ -51,6 +52,23 @@ export default function BuyerDashboard() {
 
   useEffect(() => {
     fetchAuctions();
+
+    // === SSE Connection for Live Updates ===
+    const events = new EventSource("/api/sse");
+
+    events.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "bid_update") {
+          console.log("🔄 Bid update received — refreshing...");
+          fetchAuctions();
+        }
+      } catch (err) {
+        console.error("SSE event error:", err);
+      }
+    };
+
+    return () => events.close();
   }, []);
 
   const startAuction = async (auctionId: number) => {
@@ -117,7 +135,7 @@ export default function BuyerDashboard() {
         🏦 Buyer Dashboard
       </h1>
 
-      {/* CREATE AUCTION FORM */}
+      {/* === Create Auction Form === */}
       <div className="max-w-4xl mx-auto bg-white p-6 rounded-2xl shadow-md border border-gray-200 mb-8">
         <h2 className="text-xl font-semibold mb-4 text-gray-700">
           Create New Auction
@@ -172,7 +190,7 @@ export default function BuyerDashboard() {
 
           <div className="md:col-span-2">
             <label className="text-sm text-gray-600">
-              Items (comma-separated fields per line: Description, Qty, UOM)
+              Items (comma-separated per line: Description, Qty, UOM)
             </label>
             <textarea
               value={itemsText}
@@ -195,7 +213,7 @@ export default function BuyerDashboard() {
         </form>
       </div>
 
-      {/* EXISTING AUCTIONS */}
+      {/* === Existing Auctions === */}
       <h2 className="text-xl font-semibold text-gray-800 mb-4 text-center">
         Current Auctions
       </h2>
@@ -233,7 +251,7 @@ export default function BuyerDashboard() {
                 {auction.decrementStep}
               </p>
 
-              {/* START AUCTION */}
+              {/* START */}
               {auction.status === "SCHEDULED" && (
                 <button
                   onClick={() => startAuction(auction.id)}
@@ -243,7 +261,7 @@ export default function BuyerDashboard() {
                 </button>
               )}
 
-              {/* CLOSE AUCTION */}
+              {/* CLOSE */}
               {auction.status === "LIVE" && (
                 <button
                   onClick={() => closeAuction(auction.id)}
@@ -253,7 +271,7 @@ export default function BuyerDashboard() {
                 </button>
               )}
 
-              {/* DOWNLOAD REPORT */}
+              {/* PDF REPORT */}
               {auction.status === "CLOSED" && (
                 <button
                   onClick={() =>
@@ -265,7 +283,7 @@ export default function BuyerDashboard() {
                 </button>
               )}
 
-              {/* VIEW CURRENT BIDS */}
+              {/* VIEW BIDS */}
               <button
                 className="mt-4 text-indigo-600 hover:underline text-sm"
                 onClick={() =>

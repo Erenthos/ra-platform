@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 interface Bid {
   id: number;
   supplierId: number;
-  supplierName: string;
   bidValue: number;
+  supplier?: { username: string };
 }
 
 interface Item {
@@ -21,87 +21,87 @@ interface Auction {
   id: number;
   title: string;
   status: string;
-  decrementStep: number;
   durationMins: number;
   startPrice: number;
+  decrementStep: number;
   items: Item[];
 }
 
 export default function BuyerDashboard() {
   const [auctions, setAuctions] = useState<Auction[]>([]);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null);
   const [title, setTitle] = useState("");
   const [startPrice, setStartPrice] = useState("");
-  const [decrementStep, setDecrementStep] = useState("100");
+  const [decrementStep, setDecrementStep] = useState("1");
   const [durationMins, setDurationMins] = useState("10");
   const [itemsText, setItemsText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
+  // ✅ Fetch all auctions
   const fetchAuctions = async () => {
-    setLoading(true);
     try {
       const res = await fetch("/api/auctions", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch auctions");
       const data = await res.json();
       setAuctions(data);
+      if (selectedAuction) {
+        const updated = data.find((a: any) => a.id === selectedAuction.id);
+        if (updated) setSelectedAuction(updated);
+      }
     } catch (err) {
       console.error("Error fetching auctions:", err);
-    } finally {
-      setLoading(false);
     }
   };
 
+  // ⚡ Real-time updates via SSE
   useEffect(() => {
     fetchAuctions();
 
-    // === SSE Connection for Live Updates ===
-    const events = new EventSource("/api/sse");
+    let sse: EventSource | null = null;
 
-    events.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "bid_update") {
-          console.log("🔄 Bid update received — refreshing...");
-          fetchAuctions();
+    const connectSSE = () => {
+      sse = new EventSource("/api/sse");
+
+      sse.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "bid_update") {
+            console.log("🔄 Live bid update received — refreshing buyer dashboard");
+            fetchAuctions();
+          }
+        } catch (err) {
+          console.error("SSE parse error:", err);
         }
-      } catch (err) {
-        console.error("SSE event error:", err);
-      }
+      };
+
+      sse.onerror = (e) => {
+        console.error("SSE connection lost, retrying in 5s...", e);
+        sse?.close();
+        setTimeout(connectSSE, 5000);
+      };
     };
 
-    return () => events.close();
+    connectSSE();
+    return () => sse?.close();
   }, []);
 
-  const startAuction = async (auctionId: number) => {
-    try {
-      const res = await fetch(`/api/auctions/${auctionId}/start`, { method: "POST" });
-      if (res.ok) {
-        alert("Auction started successfully!");
-        fetchAuctions();
-      } else {
-        alert("Failed to start auction");
-      }
-    } catch {
-      alert("Error starting auction");
-    }
-  };
+  // 🧾 Create a new auction
+  const createAuction = async () => {
+    const buyerId = Number(localStorage.getItem("buyerId"));
 
-  const closeAuction = async (auctionId: number) => {
-    try {
-      const res = await fetch(`/api/auctions/${auctionId}/close`, { method: "POST" });
-      if (res.ok) {
-        alert(`Auction #${auctionId} closed successfully.`);
-        fetchAuctions();
-      } else {
-        alert("Failed to close auction");
-      }
-    } catch {
-      alert("Error closing auction");
+    if (!buyerId || isNaN(buyerId)) {
+      alert("Buyer not logged in. Please sign in again.");
+      return;
     }
-  };
 
-  const createAuction = async (e: React.FormEvent) => {
-    e.preventDefault();
+    if (!title || !startPrice || !itemsText.trim()) {
+      alert("Please fill in all fields.");
+      return;
+    }
+
     try {
+      setLoading(true);
       const res = await fetch("/api/auctions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -111,252 +111,255 @@ export default function BuyerDashboard() {
           decrementStep,
           durationMins,
           itemsText,
+          buyerId, // ✅ send buyerId
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to create auction");
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Failed to create auction");
 
-      alert("Auction created successfully!");
+      setMessage("✅ Auction created successfully!");
       setTitle("");
       setStartPrice("");
-      setDecrementStep("100");
+      setDecrementStep("1");
       setDurationMins("10");
       setItemsText("");
       fetchAuctions();
     } catch (err) {
+      console.error("Error creating auction:", err);
       alert("Error creating auction");
-      console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // ▶️ Start an auction manually
+  const startAuction = async (auctionId: number) => {
+    try {
+      const res = await fetch(`/api/auctions/${auctionId}/start`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to start auction");
+      fetchAuctions();
+    } catch (err) {
+      console.error("Error starting auction:", err);
+    }
+  };
+
+  // ⏹️ Close an auction manually
+  const closeAuction = async (auctionId: number) => {
+    try {
+      const res = await fetch(`/api/auctions/${auctionId}/close`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to close auction");
+      fetchAuctions();
+    } catch (err) {
+      console.error("Error closing auction:", err);
+    }
+  };
+
+  // 🧾 Download Auction Summary PDF
+  const downloadSummary = async (auctionId: number) => {
+    try {
+      const res = await fetch(`/api/auctions/${auctionId}/summary`);
+      if (!res.ok) throw new Error("Failed to generate PDF");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Auction_${auctionId}_Summary.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading summary:", err);
+      alert("Error generating auction PDF.");
+    }
+  };
+
+  // 🚪 Logout handler
+  const handleLogout = () => {
+    localStorage.clear();
+    window.location.href = "/buyer/signin";
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-8">
-      <h1 className="text-3xl font-bold text-center text-gray-800 mb-8">
-        🏦 Buyer Dashboard
-      </h1>
-
-      {/* === Create Auction Form === */}
-      <div className="max-w-4xl mx-auto bg-white p-6 rounded-2xl shadow-md border border-gray-200 mb-8">
-        <h2 className="text-xl font-semibold mb-4 text-gray-700">
-          Create New Auction
-        </h2>
-        <form
-          onSubmit={createAuction}
-          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+    <div className="min-h-screen bg-gray-50 p-8">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-indigo-700">Buyer Dashboard</h1>
+        <button
+          onClick={handleLogout}
+          className="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg"
         >
-          <div>
-            <label className="text-sm text-gray-600">Auction Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              className="w-full p-2 border rounded-md mt-1"
-              placeholder="E.g. Supply of Cables"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm text-gray-600">Start Price (₹)</label>
-            <input
-              type="number"
-              value={startPrice}
-              onChange={(e) => setStartPrice(e.target.value)}
-              required
-              className="w-full p-2 border rounded-md mt-1"
-              placeholder="e.g. 10000"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm text-gray-600">Decrement Step (₹)</label>
-            <input
-              type="number"
-              value={decrementStep}
-              onChange={(e) => setDecrementStep(e.target.value)}
-              className="w-full p-2 border rounded-md mt-1"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm text-gray-600">Duration (mins)</label>
-            <input
-              type="number"
-              value={durationMins}
-              onChange={(e) => setDurationMins(e.target.value)}
-              className="w-full p-2 border rounded-md mt-1"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="text-sm text-gray-600">
-              Items (comma-separated per line: Description, Qty, UOM)
-            </label>
-            <textarea
-              value={itemsText}
-              onChange={(e) => setItemsText(e.target.value)}
-              rows={4}
-              placeholder={`E.g.\nSolar Cable 4mm, 500, MTR\nMC4 Connector, 100, SET`}
-              className="w-full p-2 border rounded-md mt-1"
-              required
-            ></textarea>
-          </div>
-
-          <div className="md:col-span-2 flex justify-center">
-            <button
-              type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg"
-            >
-              ➕ Create Auction
-            </button>
-          </div>
-        </form>
+          Logout
+        </button>
       </div>
 
-      {/* === Existing Auctions === */}
-      <h2 className="text-xl font-semibold text-gray-800 mb-4 text-center">
-        Current Auctions
-      </h2>
+      {message && <div className="text-green-600 font-medium mb-4">{message}</div>}
 
-      {loading ? (
-        <p className="text-center text-gray-600">Loading auctions...</p>
-      ) : auctions.length === 0 ? (
-        <p className="text-center text-gray-500">No auctions found</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {auctions.map((auction) => (
-            <div
-              key={auction.id}
-              className="bg-white rounded-2xl shadow-md border border-gray-200 hover:shadow-lg transition p-6"
-            >
-              <div className="flex justify-between items-center mb-3">
-                <h2 className="text-xl font-semibold text-gray-800">
-                  {auction.title}
-                </h2>
-                <span
-                  className={`px-3 py-1 rounded-full text-sm ${
-                    auction.status === "LIVE"
-                      ? "bg-green-100 text-green-700"
-                      : auction.status === "CLOSED"
-                      ? "bg-gray-200 text-gray-600"
-                      : "bg-yellow-100 text-yellow-700"
-                  }`}
-                >
-                  {auction.status}
-                </span>
-              </div>
+      {/* Auction Creation Form */}
+      <div className="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-8">
+        <h2 className="text-xl font-semibold mb-4 text-gray-800">Create New Auction</h2>
+        <div className="grid grid-cols-2 gap-4 mb-3">
+          <input
+            className="border p-2 rounded"
+            placeholder="Auction Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <input
+            className="border p-2 rounded"
+            placeholder="Start Price"
+            type="number"
+            value={startPrice}
+            onChange={(e) => setStartPrice(e.target.value)}
+          />
+          <input
+            className="border p-2 rounded"
+            placeholder="Decrement Step"
+            type="number"
+            value={decrementStep}
+            onChange={(e) => setDecrementStep(e.target.value)}
+          />
+          <input
+            className="border p-2 rounded"
+            placeholder="Duration (mins)"
+            type="number"
+            value={durationMins}
+            onChange={(e) => setDurationMins(e.target.value)}
+          />
+        </div>
+        <textarea
+          className="border w-full p-2 rounded mb-4"
+          rows={4}
+          placeholder="Items (Format: description, qty, uom)"
+          value={itemsText}
+          onChange={(e) => setItemsText(e.target.value)}
+        />
+        <button
+          onClick={createAuction}
+          disabled={loading}
+          className={`px-6 py-2 rounded-lg text-white transition ${
+            loading ? "bg-gray-400" : "bg-indigo-600 hover:bg-indigo-700"
+          }`}
+        >
+          {loading ? "Creating..." : "Create Auction"}
+        </button>
+      </div>
 
-              <p className="text-sm text-gray-500 mb-3">
-                Duration: {auction.durationMins} mins | Step: ₹
-                {auction.decrementStep}
-              </p>
-
-              {/* START */}
-              {auction.status === "SCHEDULED" && (
-                <button
-                  onClick={() => startAuction(auction.id)}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm"
-                >
-                  ▶️ Start Auction
-                </button>
-              )}
-
-              {/* CLOSE */}
-              {auction.status === "LIVE" && (
-                <button
-                  onClick={() => closeAuction(auction.id)}
-                  className="mt-3 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm"
-                >
-                  ⛔ Close Auction
-                </button>
-              )}
-
-              {/* PDF REPORT */}
-              {auction.status === "CLOSED" && (
-                <button
-                  onClick={() =>
-                    window.open(`/api/auctions/${auction.id}/summary`, "_blank")
-                  }
-                  className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm"
-                >
-                  📄 Download PDF Report
-                </button>
-              )}
-
-              {/* VIEW BIDS */}
-              <button
-                className="mt-4 text-indigo-600 hover:underline text-sm"
-                onClick={() =>
-                  setExpandedId(expandedId === auction.id ? null : auction.id)
-                }
+      {/* Auction List */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {auctions.map((auction) => (
+          <div
+            key={auction.id}
+            className="bg-white p-5 rounded-xl shadow hover:shadow-lg transition border border-gray-100"
+          >
+            <h2 className="text-lg font-semibold text-gray-800 mb-2">
+              {auction.title}
+            </h2>
+            <p className="text-sm text-gray-500 mb-3">
+              Status:{" "}
+              <span
+                className={`font-semibold ${
+                  auction.status === "LIVE"
+                    ? "text-green-600"
+                    : auction.status === "CLOSED"
+                    ? "text-gray-500"
+                    : "text-yellow-600"
+                }`}
               >
-                {expandedId === auction.id
-                  ? "Hide Current Bids"
-                  : "View Current Bids"}
-              </button>
+                {auction.status}
+              </span>
+            </p>
 
-              {expandedId === auction.id && (
-                <div className="mt-4 overflow-x-auto">
-                  {auction.items.length === 0 ? (
-                    <p className="text-gray-500 text-sm">No items added yet</p>
-                  ) : (
-                    <table className="min-w-full border border-gray-200 text-sm">
-                      <thead className="bg-gray-100 text-gray-700">
-                        <tr>
-                          <th className="p-2 border">Item Description</th>
-                          <th className="p-2 border">Qty</th>
-                          <th className="p-2 border">UOM</th>
-                          <th className="p-2 border">Supplier</th>
-                          <th className="p-2 border">Bid (₹)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {auction.items.flatMap((item) =>
-                          item.bids.length > 0 ? (
-                            item.bids.map((bid) => (
-                              <tr key={bid.id} className="text-gray-700">
-                                <td className="p-2 border">
-                                  {item.description}
-                                </td>
-                                <td className="p-2 border text-center">
-                                  {item.quantity}
-                                </td>
-                                <td className="p-2 border text-center">
-                                  {item.uom}
-                                </td>
-                                <td className="p-2 border text-center">
-                                  {bid.supplierName}
-                                </td>
-                                <td className="p-2 border text-center font-medium">
-                                  ₹{bid.bidValue}
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr key={item.id}>
-                              <td className="p-2 border">{item.description}</td>
-                              <td className="p-2 border text-center">
-                                {item.quantity}
-                              </td>
-                              <td className="p-2 border text-center">
-                                {item.uom}
-                              </td>
-                              <td
-                                className="p-2 border text-center text-gray-400"
-                                colSpan={2}
-                              >
-                                No bids yet
-                              </td>
-                            </tr>
-                          )
-                        )}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
+            {auction.status === "SCHEDULED" && (
+              <button
+                onClick={() => startAuction(auction.id)}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 transition"
+              >
+                ▶️ Start Auction
+              </button>
+            )}
+
+            {auction.status === "LIVE" && (
+              <button
+                onClick={() => closeAuction(auction.id)}
+                className="bg-red-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-600 transition"
+              >
+                ⏹️ Close Auction
+              </button>
+            )}
+
+            {auction.status === "CLOSED" && (
+              <button
+                onClick={() => downloadSummary(auction.id)}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 transition"
+              >
+                📄 Download Summary
+              </button>
+            )}
+
+            <button
+              onClick={() => setSelectedAuction(auction)}
+              className="ml-2 border border-gray-300 text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-100 transition"
+            >
+              View Bids
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* View Bids Section */}
+      {selectedAuction && (
+        <div className="mt-10 bg-white p-6 rounded-xl shadow-md border border-gray-200">
+          <div className="flex justify-between mb-3">
+            <h3 className="text-lg font-semibold text-gray-800">
+              {selectedAuction.title} — Current Bids
+            </h3>
+            <button
+              onClick={() => setSelectedAuction(null)}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              ✖ Close
+            </button>
+          </div>
+
+          <table className="min-w-full border text-sm text-center">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-2 border">Description</th>
+                <th className="p-2 border">Qty</th>
+                <th className="p-2 border">UOM</th>
+                <th className="p-2 border">Supplier</th>
+                <th className="p-2 border">Bid Value (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selectedAuction.items.flatMap((item) =>
+                item.bids.length > 0 ? (
+                  item.bids.map((b) => (
+                    <tr key={b.id}>
+                      <td className="p-2 border">{item.description}</td>
+                      <td className="p-2 border">{item.quantity}</td>
+                      <td className="p-2 border">{item.uom}</td>
+                      <td className="p-2 border">{b.supplier?.username || "Supplier"}</td>
+                      <td className="p-2 border text-green-700 font-semibold">
+                        ₹{b.bidValue}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr key={item.id}>
+                    <td className="p-2 border">{item.description}</td>
+                    <td className="p-2 border">{item.quantity}</td>
+                    <td className="p-2 border">{item.uom}</td>
+                    <td className="p-2 border text-gray-400" colSpan={2}>
+                      No Bids Yet
+                    </td>
+                  </tr>
+                )
               )}
-            </div>
-          ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

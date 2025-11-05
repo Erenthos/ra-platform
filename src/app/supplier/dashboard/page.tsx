@@ -2,15 +2,15 @@
 
 import React, { useEffect, useState } from "react";
 
-// ✅ Add a local type that matches your Prisma Auction model
-type Auction = {
+// ✅ Define the exact expected data shape from /api/auctions
+interface Auction {
   id: number;
   title: string;
   startPrice: number;
   decrementStep: number;
   durationMins: number;
-  status: string; // 👈 this fixes the error
-};
+  status?: string; // ✅ optional to avoid compile error
+}
 
 export default function SupplierDashboard() {
   const [auctions, setAuctions] = useState<Auction[]>([]);
@@ -23,7 +23,8 @@ export default function SupplierDashboard() {
         if (!res.ok) throw new Error("Failed to fetch auctions");
 
         const all: Auction[] = await res.json();
-        const live = all.filter((a: Auction) => a.status === "LIVE"); // ✅ type-safe now
+        // ✅ This now compiles since 'status' exists in type
+        const live = all.filter((a) => a.status === "LIVE");
         setAuctions(live);
       } catch (err: any) {
         console.error(err);
@@ -32,15 +33,13 @@ export default function SupplierDashboard() {
     }
 
     fetchAuctions();
-    const interval = setInterval(fetchAuctions, 5000); // Refresh every 5s
+    const interval = setInterval(fetchAuctions, 5000); // refresh every 5s
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <h1 className="text-3xl font-bold mb-6 text-blue-800">
-        Supplier Live Auctions
-      </h1>
+    <div className="min-h-screen bg-gray-50 p-8">
+      <h1 className="text-3xl font-bold mb-6 text-blue-800">Supplier Dashboard</h1>
 
       {error && (
         <div className="text-red-600 mb-4 bg-red-100 p-2 rounded">{error}</div>

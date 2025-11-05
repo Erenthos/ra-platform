@@ -14,7 +14,7 @@ export default function BuyerDashboard() {
   const [durationMins, setDurationMins] = useState("10");
   const [itemsText, setItemsText] = useState("");
 
-  // Fetch auctions on mount
+  // Fetch auctions
   useEffect(() => {
     fetchAuctions();
   }, []);
@@ -73,11 +73,8 @@ export default function BuyerDashboard() {
     if (!confirm("Are you sure you want to start this auction?")) return;
 
     try {
-      const res = await fetch(`/api/auctions/start/${id}`, {
-        method: "PATCH",
-      });
+      const res = await fetch(`/api/auctions/start/${id}`, { method: "PATCH" });
       const data = await res.json();
-
       if (res.ok) {
         alert("Auction started successfully!");
         fetchAuctions();
@@ -95,11 +92,8 @@ export default function BuyerDashboard() {
     if (!confirm("Are you sure you want to close this auction?")) return;
 
     try {
-      const res = await fetch(`/api/auctions/close/${id}`, {
-        method: "PATCH",
-      });
+      const res = await fetch(`/api/auctions/close/${id}`, { method: "PATCH" });
       const data = await res.json();
-
       if (res.ok) {
         alert("Auction closed successfully!");
         fetchAuctions();
@@ -232,7 +226,7 @@ export default function BuyerDashboard() {
                   Duration: {auction.durationMins} mins
                 </p>
 
-                {/* Start Auction Button */}
+                {/* Start Button */}
                 {auction.status === "SCHEDULED" && (
                   <button
                     onClick={() => startAuction(auction.id)}
@@ -242,7 +236,7 @@ export default function BuyerDashboard() {
                   </button>
                 )}
 
-                {/* Close Auction Button */}
+                {/* Close Button */}
                 {auction.status === "LIVE" && (
                   <button
                     onClick={() => closeAuction(auction.id)}
@@ -252,7 +246,7 @@ export default function BuyerDashboard() {
                   </button>
                 )}
 
-                {/* Status Label */}
+                {/* Status Indicators */}
                 {auction.status === "LIVE" && (
                   <div className="mt-2 text-center text-green-600 font-semibold">
                     🔴 Auction is LIVE
@@ -263,6 +257,26 @@ export default function BuyerDashboard() {
                     ✅ Auction Closed
                   </div>
                 )}
+
+                {/* Bid Section */}
+                <details className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <summary className="cursor-pointer text-sm font-semibold text-blue-600">
+                    View Current Bids
+                  </summary>
+                  <div className="mt-2 text-sm text-gray-700">
+                    {auction.bids && auction.bids.length > 0 ? (
+                      <ul className="space-y-1">
+                        {auction.bids.map((bid: any) => (
+                          <li key={bid.id}>
+                            Supplier #{bid.supplierId}: ₹{bid.bidValue}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-500">No bids yet.</p>
+                    )}
+                  </div>
+                </details>
               </div>
             ))}
           </div>

@@ -9,7 +9,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // ✅ Support both `username` and `email` fields
     const username = body.username?.trim();
     const password = body.password?.trim();
     const role = body.role?.trim();
@@ -21,19 +20,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ Find the user with matching username and role
+    // Find user
     const user = await prisma.user.findFirst({
       where: { username, role },
     });
 
     if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // ✅ Compare passwords using bcrypt
+    // Validate password
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       return NextResponse.json(
@@ -42,19 +38,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ Generate JWT
+    // Generate JWT
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
       process.env.JWT_SECRET!,
       { expiresIn: "7d" }
     );
 
-    // ✅ Return success with token
+    // ✅ Return full user info
     return NextResponse.json({
       message: "Login successful",
       token,
-      role: user.role,
-      username: user.username,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      },
     });
   } catch (err) {
     console.error("Signin error:", err);

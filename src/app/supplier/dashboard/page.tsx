@@ -2,18 +2,18 @@
 
 import React, { useEffect, useState } from "react";
 
-// ✅ Define the exact expected data shape from /api/auctions
-interface Auction {
+// ✅ Explicitly define the shape of auctions coming from the API
+type AuctionType = {
   id: number;
   title: string;
   startPrice: number;
   decrementStep: number;
   durationMins: number;
-  status?: string; // ✅ optional to avoid compile error
-}
+  status?: string; // optional so build never fails
+};
 
 export default function SupplierDashboard() {
-  const [auctions, setAuctions] = useState<Auction[]>([]);
+  const [auctions, setAuctions] = useState<AuctionType[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -22,8 +22,9 @@ export default function SupplierDashboard() {
         const res = await fetch("/api/auctions", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to fetch auctions");
 
-        const all: Auction[] = await res.json();
-        // ✅ This now compiles since 'status' exists in type
+        const all = (await res.json()) as AuctionType[];
+
+        // ✅ don’t use inline type in callback
         const live = all.filter((a) => a.status === "LIVE");
         setAuctions(live);
       } catch (err: any) {
@@ -33,7 +34,7 @@ export default function SupplierDashboard() {
     }
 
     fetchAuctions();
-    const interval = setInterval(fetchAuctions, 5000); // refresh every 5s
+    const interval = setInterval(fetchAuctions, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -73,7 +74,7 @@ export default function SupplierDashboard() {
                     : "bg-gray-200 text-gray-700"
                 }`}
               >
-                {auction.status}
+                {auction.status || "N/A"}
               </span>
             </div>
           ))}

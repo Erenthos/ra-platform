@@ -1,15 +1,9 @@
 import { NextRequest } from "next/server";
-import { EventEmitter } from "events";
+import { SSEEmitter } from "@/lib/sse";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const emitter = new EventEmitter();
-
-// Limit max listeners to avoid warnings
-emitter.setMaxListeners(50);
-
-// Called by clients to subscribe
 export async function GET(req: NextRequest) {
   const stream = new ReadableStream({
     start(controller) {
@@ -17,15 +11,16 @@ export async function GET(req: NextRequest) {
         controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
       };
 
-      // Send initial connection event
+      // Send connection acknowledgement
       send({ type: "connected" });
 
-      // Listen for updates
+      // Listener for updates
       const listener = (update: any) => send(update);
-      emitter.on("update", listener);
+      SSEEmitter.on("update", listener);
 
+      // Cleanup on disconnect
       req.signal.addEventListener("abort", () => {
-        emitter.removeListener("update", listener);
+        SSEEmitter.removeListener("update", listener);
         controller.close();
       });
     },
@@ -38,9 +33,4 @@ export async function GET(req: NextRequest) {
       Connection: "keep-alive",
     },
   });
-}
-
-// Function for other APIs to trigger live updates
-export function broadcastBidUpdate(auctionId: number) {
-  emitter.emit("update", { type: "bid_update", auctionId });
 }

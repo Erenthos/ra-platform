@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
-import ExcelJS from "exceljs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +14,9 @@ export async function GET(
   const auctionId = Number(params.id);
 
   try {
-    // ✅ Fetch auction with buyer, items, and bids
+    // ✅ Lazy import exceljs only at runtime (avoids build-time bundling)
+    const ExcelJS = (await import("exceljs")).default;
+
     const auction = await prisma.auction.findUnique({
       where: { id: auctionId },
       include: {
@@ -35,19 +36,16 @@ export async function GET(
       return NextResponse.json({ error: "Auction not found" }, { status: 404 });
     }
 
-    // ✅ Create workbook & worksheet
+    // ✅ Create workbook
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Auction Summary");
 
-    // --- Header ---
-    sheet.mergeCells("A1", "E1");
-    const headerCell = sheet.getCell("A1");
-    headerCell.value = "Reverse Auction Summary Report";
-    headerCell.font = { size: 16, bold: true, color: { argb: "FFFFFFFF" } };
-    headerCell.alignment = { horizontal: "center" };
-    headerCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "4472C4" } };
+    sheet.mergeCells("A1", "F1");
+    sheet.getCell("A1").value = "Reverse Auction Summary Report";
+    sheet.getCell("A1").font = { size: 16, bold: true, color: { argb: "FFFFFFFF" } };
+    sheet.getCell("A1").alignment = { horizontal: "center" };
+    sheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "4472C4" } };
 
-    // --- Auction Metadata ---
     sheet.addRow([]);
     sheet.addRow(["Auction Title:", auction.title]);
     sheet.addRow(["Buyer:", auction.buyer?.username]);
@@ -56,8 +54,7 @@ export async function GET(
     sheet.addRow(["Duration:", `${auction.durationMins} minutes`]);
     sheet.addRow([]);
 
-    // --- Table Header ---
-    sheet.addRow(["Item Description", "Quantity", "UOM", "Supplier", "Bid Value", "Winner"]);
+    sheet.addRow(["Item Description", "Qty", "UOM", "Supplier", "Bid Value", "Winner"]);
     const headerRow = sheet.lastRow!;
     headerRow.font = { bold: true };
     headerRow.eachCell((cell) => {
@@ -70,14 +67,12 @@ export async function GET(
       };
     });
 
-    // --- Table Content ---
     auction.items.forEach((item) => {
-      const bids = item.bids;
-      if (bids.length === 0) {
+      if (item.bids.length === 0) {
         sheet.addRow([item.description, item.quantity, item.uom, "No bids", "-", ""]);
       } else {
-        bids.forEach((bid, i) => {
-          const isWinner = i === 0; // first = lowest
+        item.bids.forEach((bid, i) => {
+          const isWinner = i === 0;
           const row = sheet.addRow([
             i === 0 ? item.description : "",
             i === 0 ? item.quantity : "",
@@ -86,30 +81,26 @@ export async function GET(
             bid.bidValue,
             isWinner ? "🏆 Winner" : "",
           ]);
-          if (isWinner) {
-            row.getCell(6).font = { color: { argb: "FF007000" }, bold: true };
-          }
+          if (isWinner) row.getCell(6).font = { color: { argb: "FF007000" }, bold: true };
         });
       }
     });
 
-    // --- Format Columns ---
     sheet.columns = [
-      { key: "desc", width: 35 },
-      { key: "qty", width: 10 },
-      { key: "uom", width: 10 },
-      { key: "supplier", width: 25 },
-      { key: "bid", width: 15 },
-      { key: "winner", width: 15 },
+      { width: 30 },
+      { width: 10 },
+      { width: 10 },
+      { width: 25 },
+      { width: 15 },
+      { width: 15 },
     ];
 
-    // --- Footer ---
-    const footerRow = sheet.addRow([]);
+    sheet.addRow([]);
     sheet.addRow(["Generated On:", new Date().toLocaleString()]);
-    sheet.addRow(["© Reverse Auction Platform", ""]);
+    sheet.addRow(["© Reverse Auction Platform"]);
 
-    // --- Finalize and send ---
     const buffer = await workbook.xlsx.writeBuffer();
+
     return new NextResponse(buffer, {
       headers: {
         "Content-Type":

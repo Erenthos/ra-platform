@@ -1,11 +1,7 @@
 {
-"version": 2,
-"builds": [
-{ "src": "package.json", "use": "@vercel/next" }
-],
-"routes": [
-{ "src": "/api/(.*)", "dest": "/api/$1" },
-{ "src": "/(.*)", "dest": "/$1" }
-]
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs18.x"
+    }
+  }
 }
-

@@ -14,8 +14,11 @@ export async function GET(
   const auctionId = Number(params.id);
 
   try {
-    // ✅ Lazy import of xlsx (no heavy bundling)
-    const XLSX = await import("xlsx");
+    // ✅ CDN import of SheetJS — skips Next.js bundling entirely
+    const XLSX = await import(
+      /* webpackIgnore: true */
+      "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm"
+    );
 
     // ✅ Fetch auction with related data
     const auction = await prisma.auction.findUnique({
@@ -40,7 +43,6 @@ export async function GET(
     // ✅ Prepare worksheet data
     const sheetData: any[][] = [];
 
-    // Header
     sheetData.push(["Reverse Auction Summary Report"]);
     sheetData.push([]);
     sheetData.push(["Auction Title:", auction.title]);
@@ -50,7 +52,7 @@ export async function GET(
     sheetData.push(["Duration:", `${auction.durationMins} minutes`]);
     sheetData.push([]);
 
-    // Table header
+    // --- Table header
     sheetData.push([
       "Item Description",
       "Quantity",
@@ -60,7 +62,7 @@ export async function GET(
       "Winner",
     ]);
 
-    // Table rows
+    // --- Table body
     for (const item of auction.items) {
       if (item.bids.length === 0) {
         sheetData.push([
@@ -95,14 +97,11 @@ export async function GET(
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Auction Summary");
 
-    // ✅ Convert to binary buffer
-    const excelBuffer = XLSX.write(workbook, {
-      type: "buffer",
-      bookType: "xlsx",
-    });
+    // ✅ Write workbook to ArrayBuffer
+    const wbout = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
 
-    // ✅ Return file
-    return new NextResponse(excelBuffer, {
+    // ✅ Return as downloadable Excel file
+    return new NextResponse(wbout, {
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

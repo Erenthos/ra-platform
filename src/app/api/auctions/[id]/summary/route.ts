@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
-import PDFDocument from "pdfkit";
+import ExcelJS from "exceljs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export async function GET(
   const auctionId = Number(params.id);
 
   try {
-    // ✅ Fetch auction details with buyer, items, and bids
+    // ✅ Fetch auction with buyer, items, and bids
     const auction = await prisma.auction.findUnique({
       where: { id: auctionId },
       include: {
@@ -35,82 +35,92 @@ export async function GET(
       return NextResponse.json({ error: "Auction not found" }, { status: 404 });
     }
 
-    // ✅ Create PDF document
-    const doc = new PDFDocument({ margin: 40 });
-    const buffers: Buffer[] = [];
+    // ✅ Create workbook & worksheet
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Auction Summary");
 
-    doc.on("data", (chunk) => buffers.push(chunk));
-    const pdfPromise = new Promise<Buffer>((resolve) => {
-      doc.on("end", () => resolve(Buffer.concat(buffers)));
+    // --- Header ---
+    sheet.mergeCells("A1", "E1");
+    const headerCell = sheet.getCell("A1");
+    headerCell.value = "Reverse Auction Summary Report";
+    headerCell.font = { size: 16, bold: true, color: { argb: "FFFFFFFF" } };
+    headerCell.alignment = { horizontal: "center" };
+    headerCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "4472C4" } };
+
+    // --- Auction Metadata ---
+    sheet.addRow([]);
+    sheet.addRow(["Auction Title:", auction.title]);
+    sheet.addRow(["Buyer:", auction.buyer?.username]);
+    sheet.addRow(["Status:", auction.status]);
+    sheet.addRow(["Start Price:", `₹${auction.startPrice}`]);
+    sheet.addRow(["Duration:", `${auction.durationMins} minutes`]);
+    sheet.addRow([]);
+
+    // --- Table Header ---
+    sheet.addRow(["Item Description", "Quantity", "UOM", "Supplier", "Bid Value", "Winner"]);
+    const headerRow = sheet.lastRow!;
+    headerRow.font = { bold: true };
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D9E1F2" } };
+      cell.border = {
+        top: { style: "thin" },
+        bottom: { style: "thin" },
+        left: { style: "thin" },
+        right: { style: "thin" },
+      };
     });
 
-    // ✅ Write header info
-    doc
-      .fontSize(20)
-      .fillColor("#1e3a8a")
-      .text("Reverse Auction Summary Report", { align: "center" })
-      .moveDown();
-
-    doc
-      .fontSize(12)
-      .fillColor("black")
-      .text(`Auction Title: ${auction.title}`)
-      .text(`Buyer: ${auction.buyer?.username}`)
-      .text(`Status: ${auction.status}`)
-      .text(`Start Price: ₹${auction.startPrice}`)
-      .text(`Duration: ${auction.durationMins} mins`)
-      .moveDown();
-
-    // ✅ Items and Bids
-    doc.fontSize(14).fillColor("#1e3a8a").text("Items and Bids", { underline: true }).moveDown(0.5);
-    doc.fontSize(11).fillColor("black");
-
-    for (const item of auction.items) {
-      doc.text(`• ${item.description} (${item.quantity} ${item.uom})`);
-      if (item.bids.length === 0) {
-        doc.text("   No bids submitted yet.").moveDown(0.5);
+    // --- Table Content ---
+    auction.items.forEach((item) => {
+      const bids = item.bids;
+      if (bids.length === 0) {
+        sheet.addRow([item.description, item.quantity, item.uom, "No bids", "-", ""]);
       } else {
-        item.bids.forEach((bid, index) => {
-          const isLowest = index === 0;
-          const bidText = `   ${bid.supplier.username}: ₹${bid.bidValue}`;
-          doc.text(isLowest ? bidText + " ✅ (Lowest)" : bidText);
+        bids.forEach((bid, i) => {
+          const isWinner = i === 0; // first = lowest
+          const row = sheet.addRow([
+            i === 0 ? item.description : "",
+            i === 0 ? item.quantity : "",
+            i === 0 ? item.uom : "",
+            bid.supplier.username,
+            bid.bidValue,
+            isWinner ? "🏆 Winner" : "",
+          ]);
+          if (isWinner) {
+            row.getCell(6).font = { color: { argb: "FF007000" }, bold: true };
+          }
         });
-        doc.moveDown(0.5);
       }
-    }
+    });
 
-    // ✅ Winner summary
-    doc.moveDown(1);
-    doc.fontSize(14).fillColor("#1e3a8a").text("Winner Summary", { underline: true }).moveDown(0.5);
-    for (const item of auction.items) {
-      const winner = item.bids[0];
-      if (winner) {
-        doc
-          .fontSize(11)
-          .fillColor("black")
-          .text(`${item.description} → Winner: ${winner.supplier.username} @ ₹${winner.bidValue}`);
-      }
-    }
+    // --- Format Columns ---
+    sheet.columns = [
+      { key: "desc", width: 35 },
+      { key: "qty", width: 10 },
+      { key: "uom", width: 10 },
+      { key: "supplier", width: 25 },
+      { key: "bid", width: 15 },
+      { key: "winner", width: 15 },
+    ];
 
-    doc.end();
+    // --- Footer ---
+    const footerRow = sheet.addRow([]);
+    sheet.addRow(["Generated On:", new Date().toLocaleString()]);
+    sheet.addRow(["© Reverse Auction Platform", ""]);
 
-    // ✅ Wait for the full buffer
-    const pdfBuffer = await pdfPromise;
-
-    // ✅ Convert to Uint8Array (Next.js-safe BodyInit)
-    const uint8Array = new Uint8Array(pdfBuffer);
-
-    // ✅ Return as downloadable file
-    return new NextResponse(uint8Array, {
+    // --- Finalize and send ---
+    const buffer = await workbook.xlsx.writeBuffer();
+    return new NextResponse(buffer, {
       headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="Auction_${auctionId}_Summary.pdf"`,
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="Auction_${auctionId}_Summary.xlsx"`,
       },
     });
   } catch (err) {
-    console.error("🚨 Error generating auction PDF:", err);
+    console.error("🚨 Error generating Excel summary:", err);
     return NextResponse.json(
-      { error: "Failed to generate PDF" },
+      { error: "Failed to generate Excel summary" },
       { status: 500 }
     );
   }
